@@ -5,6 +5,7 @@ config-descriptor.yml
 .git
 docs
 test
+tools
 *.md
 *.png
 *.zip

@@ -46,7 +46,8 @@ local ctl = controllerLib:new({
   cells = { cell1 = { housing = "gt_iapiary", mainInterface = "iface-main", beeInterface = "iface-bees", base = { temp = 0.8, hum = 0.4 } } },
   stations = {}, defaults = { keepDrones = 4, droneSupply = 16, maxGenerations = 400, warnAfter = 60 },
   honeyLabel = "Honey Drop", honeyStock = 64, chanceWeight = 0.1, foundationCostBase = 2, libraryScanInterval = 0,
-  effectBlacklist = {}, discord = { enabled = true, webhook = WEBHOOK, token = "", channel = "", statusCard = true },
+  effectBlacklist = {}, discord = { enabled = true, webhook = WEBHOOK, token = "", channel = "", statusCard = true,
+    imageBase = "https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main/docs/bees/" },
   conditionPatterns = {}, host = { url = "http://10.0.0.5:8080", pushInterval = 30 },
 }, env.logger)
 ctl:init()
@@ -142,6 +143,16 @@ T.run("integration: webhook cards, status card, host push", function()
     T.ok(b:find('"username":"Auto Bees"', 1, true), "webhook posts carry the display name")
   end
   T.ok(sawStart and sawDone and sawStatus, "start, done and status cards present")
+  local sawIcon = false
+  for _, b in ipairs(embeds) do
+    if b:find("docs/bees/forestry_speciesCommon.png", 1, true) then sawIcon = true end
+  end
+  T.ok(sawIcon, "cards carry the species icon as thumbnail")
+  local reply = ctl:discordReply("find common", "tester")
+  T.ok(reply.embeds and reply.embeds[1].thumbnail and reply.embeds[1].thumbnail.url:find("forestry_speciesCommon"), "find reply is an embed with the icon")
+  T.ok(reply.embeds[1].description:find("1001 Common", 1, true), "find reply lists the catalog number")
+  local plain = ctl:discordReply("help", "tester")
+  T.ok(plain.content and plain.content:find("breed <number", 1, true), "help reply is a code block")
   T.ok(deletes >= 1, "the status card was replaced (old one deleted): " .. deletes)
   T.ok(pushes >= 1, "status pushed to the custom host: " .. pushes)
   for _, r in ipairs(env.http) do

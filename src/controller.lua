@@ -72,12 +72,23 @@ function controller:new(cfg, logger)
     if self.discordOn then self.discordQueue[#self.discordQueue + 1] = { text = msg } end
   end
 
+  ---Icon URL for a species (generated icons served from the repository).
+  function obj:imageUrl(name)
+    local base = (self.cfg.discord or {}).imageBase
+    if not name or not base or base == "" then return nil end
+    local e = self.cat:byNameLookup(name)
+    local file = catalog.iconFile(name, e and e.uid or nil)
+    if not file then return nil end
+    return base .. file
+  end
+
   ---Log a line and queue a Discord embed card for it.
   ---kind: start | phase | done | failed | warn | needs   fields: { {name, value[, inline]} ... }
-  function obj:card(kind, title, fields, description)
+  ---species: name whose icon becomes the card thumbnail
+  function obj:card(kind, title, fields, description, species)
     self.logger:info(clean(title))
     if self.discordOn then
-      self.discordQueue[#self.discordQueue + 1] = { embed = discord.embed(kind, title, description, fields) }
+      self.discordQueue[#self.discordQueue + 1] = { embed = discord.embed(kind, title, description, fields, self:imageUrl(species)) }
       if kind == "start" or kind == "done" or kind == "failed" then self.statusDirty = true end
     end
   end
@@ -491,7 +502,7 @@ function controller:new(cfg, logger)
             { "Keep", tostring(job.keepDrones) .. " drones" },
             { "Foundation", job.foundation or "none" },
             { "Climate", #climateText > 0 and table.concat(climateText, ", ") or "as is" },
-          })
+          }, nil, job.target)
           self:saveState()
         end
       end
@@ -571,7 +582,7 @@ function controller:new(cfg, logger)
         { "Princess", info.princess and "yes" or "no" },
         { "Honey used", tostring(info.honey or 0) },
         { "Time", util.fmtSeconds(util.now() - (job.started or util.now())) },
-      })
+      }, nil, job.target)
     else
       local missing = (info.reason or ""):match("ran out of drones %(([^/%)]+)")
       if missing and req and self.graph.species[missing] then
@@ -591,11 +602,11 @@ function controller:new(cfg, logger)
         job.attempts = (job.attempts or 0) + 1
         if job.attempts < 3 and not (info.reason or ""):match("cancelled") then
           job.status = "pending"
-          self:card("warn", string.format("%s failed, will retry", job.id), { { "Reason", tostring(info.reason) }, { "Target", self:label(job.target) } })
+          self:card("warn", string.format("%s failed, will retry", job.id), { { "Reason", tostring(info.reason) }, { "Target", self:label(job.target) } }, nil, job.target)
         else
           job.status = "failed"
           job.error = info.reason
-          self:card("failed", string.format("%s FAILED: %s", job.id, self:label(job.target)), { { "Reason", tostring(info.reason) } })
+          self:card("failed", string.format("%s FAILED: %s", job.id, self:label(job.target)), { { "Reason", tostring(info.reason) } }, nil, job.target)
         end
       end
     end
@@ -658,7 +669,8 @@ function controller:new(cfg, logger)
         c.phase = d.to
         local job = self.S.jobs[d.job]
         if d.to == "purify" or d.to == "stockpile" then
-          self:card("phase", string.format("%s: %s reached %s at generation %d", c.name, job and self:label(job.target) or "-", d.to, d.generation or 0))
+          self:card("phase", string.format("%s: %s reached %s at generation %d", c.name, job and self:label(job.target) or "-", d.to, d.generation or 0),
+            nil, nil, job and job.target or nil)
         end
       elseif p.kind == "warn" then
         self:notify("%s: %s", c.name, tostring(d.text))
@@ -760,6 +772,31 @@ function controller:new(cfg, logger)
       extra[e.name] = tonumber(n)
     end
     return extra
+  end
+
+  ---A Discord reply for a command line: an embed with the species icon for
+  ---species-centred commands, a plain code block otherwise. Returns the payload.
+  function obj:discordReply(line, who)
+    local cmd = util.parseCommand(line)
+    local verb = (cmd.words[1] or ""):lower()
+    local text = tostring(self:command(line, who))
+    local embedVerbs = { find = true, plan = true, needs = true, library = true, status = true, queue = true, cells = true, breed = true }
+    if not embedVerbs[verb] then
+      return { content = ("**" .. line .. "**\n```\n" .. text .. "\n```"):sub(1, 1990) }
+    end
+    local species
+    if verb == "find" then
+      local matches = self.cat:find(cmd.words[2] or "", 1)
+      species = matches[1] and matches[1].name or nil
+    elseif cmd.words[2] then
+      local e = self.cat:resolve(cmd.words[2])
+      species = e and e.name or nil
+    end
+    local body = text
+    if #body > 3900 then body = body:sub(1, 3880) .. "\n..." end
+    local kind = (verb == "breed") and "start" or "info"
+    local title = species and (verb .. ": " .. self:label(species)) or verb
+    return { embeds = require("src.json").array({ discord.embed(kind, title, "```\n" .. body .. "\n```", nil, self:imageUrl(species)) }) }
   end
 
   ---Execute a command line. Returns the response text.
@@ -998,8 +1035,8 @@ function controller:new(cfg, logger)
         if not m.bot and m.content:sub(1, #prefix) == prefix then
           local line = m.content:sub(#prefix + 1)
           self:log("discord %s: %s", m.author, line)
-          local res = self:command(line, m.author)
-          self.dc:post("**" .. line .. "**\n```\n" .. tostring(res) .. "\n```")
+          local ok, err = self.dc:send(self:discordReply(line, m.author))
+          if not ok then self:warn("discord reply failed: %s", tostring(err)) end
         end
       end
       if self.dc.lastId ~= self.S.discordLastId then self.S.discordLastId = self.dc.lastId; self:saveState() end

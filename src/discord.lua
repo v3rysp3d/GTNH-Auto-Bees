@@ -70,14 +70,15 @@ function discord.chunk(text, limit)
   return out
 end
 
----Build an embed. fields = { {name, value[, inline]} ... }
-function discord.embed(kind, title, description, fields)
+---Build an embed. fields = { {name, value[, inline]} ... }; thumb = image url
+function discord.embed(kind, title, description, fields, thumb)
   local e = {
     title = title and tostring(title):sub(1, 250) or nil,
     description = description and tostring(description):sub(1, 4000) or nil,
     color = discord.colors[kind] or discord.colors.info,
     footer = { text = "GTNH Auto Bees" },
   }
+  if thumb and thumb ~= "" then e.thumbnail = { url = thumb } end
   if fields and #fields > 0 then
     local list = json.array({})
     for _, f in ipairs(fields) do

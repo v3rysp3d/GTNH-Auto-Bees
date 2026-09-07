@@ -302,6 +302,12 @@ A webhook URL is all that is needed. Discord webhooks are one-way, so this is wh
 | Bot, no hosting | a bot token and a channel id | all of the above plus `!commands` typed in the channel; the computer polls the channel every few seconds |
 | Relay bot | a bot process on a server of yours | buttons and slash commands (not part of this repository) |
 
+Every card shows the species icon, rendered the way the game does it (outline and body tinted with the species
+colours) for all 441 Forestry, Extra Bees, Magic Bees and GregTech species; the icons live in `docs/bees/` and are
+regenerated from your modpack's jars with `python tools/bee_images.py`. In bot mode every command works from the
+channel: `!find naqua`, `!plan 4137`, `!needs 4137`, `!breed 4137 keep 16`, `!library`, `!status`, `!settings` and the
+rest. Species-centred replies come back as embeds with the icon, everything else as a code block.
+
 [How to create a Discord webhook](https://www.svix.com/resources/guides/how-to-make-webhook-discord/). Enter it in
 the setup guide or with `settings discord webhook <url>` on the controller; it is stored in `settings.dat`, never in
 `config.lua`. For commands, create an application in the Discord developer portal, add a bot, invite it with

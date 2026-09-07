@@ -10,6 +10,24 @@ local util = require("src.util")
 local catalog = {}
 catalog.__index = catalog
 
+-- display name -> uid for species the game reports without a uid (hive-only
+-- parents), generated from the mod sources by tools/bee_images.py
+local okHints, uidHints = pcall(require, "src.species_uids")
+catalog.uidHints = (okHints and type(uidHints) == "table") and uidHints or {}
+
+---uid for a species name: the game's uid when known, else the generated hint
+function catalog.uidFor(name, uid)
+  if uid and uid ~= "" then return uid end
+  return catalog.uidHints[name]
+end
+
+---file name of the generated icon for a species (docs/bees/<file>.png)
+function catalog.iconFile(name, uid)
+  local u = catalog.uidFor(name, uid)
+  if not u then return nil end
+  return (u:gsub("[^%w]", "_")) .. ".png"
+end
+
 catalog.ranges = {
   { prefix = "forestry.",  base = 1000, label = "Forestry" },
   { prefix = "extrabees.", base = 2000, label = "ExtraBees" },
@@ -62,14 +80,15 @@ function catalog:assign(speciesList)
   local fresh = {}
   for _, sp in ipairs(speciesList) do
     if sp.name and sp.name ~= "" then
+      local uid = catalog.uidFor(sp.name, sp.uid)
       local e = self.byName[sp.name:lower()]
       if e then
-        if (not e.uid or e.uid == "") and sp.uid and sp.uid ~= "" then
-          e.uid = sp.uid
-          e.mod = catalog.modOf(sp.uid)
+        if (not e.uid or e.uid == "") and uid then
+          e.uid = uid
+          e.mod = catalog.modOf(uid)
         end
       else
-        fresh[#fresh + 1] = sp
+        fresh[#fresh + 1] = { name = sp.name, uid = uid }
       end
     end
   end

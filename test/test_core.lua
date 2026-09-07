@@ -68,16 +68,22 @@ T.run("catalog", function()
     { name = "Forest", uid = "forestry.speciesForest" },
     { name = "Common", uid = "forestry.speciesCommon" },
     { name = "Naquadah", uid = "gregtech.bee.speciesNaquadah" },
-    { name = "Mystical" }, -- no uid: base range
+    { name = "Zzz Unknown" }, -- no uid and no hint: base range
   })
   T.eq(n, 4, "assigned")
   T.eq(c:idOf("Common"), 1001, "forestry first alphabetically")
   T.eq(c:idOf("Forest"), 1002, "forestry second")
   T.eq(c:idOf("Naquadah"), 4001, "gregtech range")
-  T.eq(c:idOf("Mystical"), 9001, "unknown range")
+  T.eq(c:idOf("Zzz Unknown"), 9001, "unknown range")
   c:assign({ { name = "Forest", uid = "forestry.speciesForest" }, { name = "Meadows", uid = "forestry.speciesMeadows" } })
   T.eq(c:idOf("Forest"), 1002, "stable id")
   T.eq(c:idOf("Meadows"), 1003, "appended")
+  -- hive-only species come without a uid from the game; the generated table fills it in
+  c:assign({ { name = "Tropical" } })
+  T.eq(c:byNameLookup("Tropical").uid, "forestry.speciesTropical", "uid hint applied")
+  T.ok(c:idOf("Tropical") >= 1000 and c:idOf("Tropical") < 2000, "hinted species lands in the Forestry range")
+  T.eq(catalog.iconFile("Forest"), "forestry_speciesForest.png", "icon file from hint")
+  T.eq(catalog.iconFile("Nope"), nil, "no icon for unknown species")
   T.eq(c:resolve("4001").name, "Naquadah", "resolve number")
   T.eq(c:resolve("naqua").name, "Naquadah", "resolve substring")
   local e, err = c:resolve("o")
