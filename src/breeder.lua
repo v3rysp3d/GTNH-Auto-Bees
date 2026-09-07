@@ -35,7 +35,7 @@
 --   mutate    princess pure A, no hit yet       -> mate with B drones
 --   purify    princess or a drone carries T     -> mate with the best T carrier
 --   stockpile princess pure T                   -> mate with pure T drones until keepDrones archived
-local genome = require("bb.genome")
+local genome = require("src.genome")
 
 local breeder = {}
 
@@ -211,7 +211,10 @@ function breeder.run(cell, job)
     end
     trim(groups.target, function(e)
       local n = e.stack.size or 1
-      if cell.archive(e.slot, n) then state.archivedDrones = state.archivedDrones + n end
+      if cell.archive(e.slot, n) then
+        state.archivedDrones = state.archivedDrones + n
+        state.fetchMissed[target] = nil -- the library holds target drones now
+      end
     end)
     trim(groups.hybrid, function(e) cell.discard(e.slot) end)
     local done = {}

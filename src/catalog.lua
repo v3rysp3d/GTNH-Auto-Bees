@@ -5,7 +5,7 @@
 --   5000+ other mods with a known UID   9000+ species with no UID
 --   (hive-only base species only appear as parents in the breeding data,
 --    which carries names but no UIDs)
-local util = require("bb.util")
+local util = require("src.util")
 
 local catalog = {}
 catalog.__index = catalog
@@ -101,7 +101,7 @@ end
 
 function catalog:label(name)
   local e = self:byNameLookup(name)
-  if e then return string.format("#%d %s", e.id, e.name) end
+  if e then return string.format("[%d] %s", e.id, e.name) end
   return tostring(name)
 end
 

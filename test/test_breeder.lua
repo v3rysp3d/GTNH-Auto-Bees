@@ -1,7 +1,7 @@
 -- Simulated Forestry genetics + a fake cell, driving bb.breeder end to end.
-local breeder = require("bb.breeder")
-local genome = require("bb.genome")
-local util = require("bb.util")
+local breeder = require("src.breeder")
+local genome = require("src.genome")
+local util = require("src.util")
 
 ------------------------------------------------------------------------
 -- tiny genetics model

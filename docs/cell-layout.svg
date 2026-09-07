@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 900 560" width="900" height="560">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" style="fill:#1f2937"/>
+    </marker>
+  </defs>
+
+  <!-- card -->
+  <rect x="0" y="0" width="900" height="560" rx="14" style="fill:#ffffff;stroke:#d0d7de;stroke-width:2"/>
+  <text x="24" y="38" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;fill:#1f2937">Breeding cell, side view</text>
+  <text x="24" y="60" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;fill:#4b5563">One robot column beside the housing column. Levels are relative to the robot's parking spot (level 0).</text>
+
+  <!-- level labels -->
+  <g style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;fill:#6b7280">
+    <text x="60" y="122" style="text-anchor:end">level +2</text>
+    <text x="60" y="192" style="text-anchor:end">level +1</text>
+    <text x="60" y="262" style="text-anchor:end">level 0</text>
+    <text x="60" y="332" style="text-anchor:end">level -1</text>
+    <text x="60" y="402" style="text-anchor:end">level -2</text>
+  </g>
+  <g style="stroke:#e5e7eb;stroke-width:1;stroke-dasharray:4 4">
+    <line x1="70" y1="150" x2="560" y2="150"/>
+    <line x1="70" y1="220" x2="560" y2="220"/>
+    <line x1="70" y1="290" x2="560" y2="290"/>
+    <line x1="70" y1="360" x2="560" y2="360"/>
+  </g>
+
+  <!-- column x positions: charger 90, robot 210, housing 330, adapters 450 (behind interfaces) -->
+
+  <!-- Charger with lever, behind robot, level 0 -->
+  <rect x="90" y="228" width="100" height="56" rx="4" style="fill:#fde68a;stroke:#b45309;stroke-width:2"/>
+  <text x="140" y="252" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Charger</text>
+  <text x="140" y="270" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">+ lever (on)</text>
+
+  <!-- Main ME Interface, level +2 -->
+  <rect x="210" y="88" width="100" height="56" rx="4" style="fill:#c7d2fe;stroke:#3730a3;stroke-width:2"/>
+  <text x="260" y="112" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">ME Interface</text>
+  <text x="260" y="130" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">main: honey, blocks, upgrades</text>
+  <!-- adapter next to it -->
+  <rect x="320" y="88" width="100" height="56" rx="4" style="fill:#e5e7eb;stroke:#374151;stroke-width:2"/>
+  <text x="370" y="112" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Adapter</text>
+  <text x="370" y="130" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">+ Database upgrade</text>
+
+  <!-- Robot column: level +1 dashed, level 0 solid, level -1 dashed -->
+  <rect x="210" y="158" width="100" height="56" rx="4" style="fill:none;stroke:#0f766e;stroke-width:2;stroke-dasharray:6 4"/>
+  <text x="260" y="182" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#0f766e;text-anchor:middle">robot (air)</text>
+  <text x="260" y="200" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">reaches chest + main interface</text>
+
+  <rect x="210" y="228" width="100" height="56" rx="4" style="fill:#99f6e4;stroke:#0f766e;stroke-width:3"/>
+  <text x="260" y="252" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Robot</text>
+  <text x="260" y="270" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">parking, faces housing</text>
+
+  <rect x="210" y="298" width="100" height="56" rx="4" style="fill:none;stroke:#0f766e;stroke-width:2;stroke-dasharray:6 4"/>
+  <text x="260" y="322" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#0f766e;text-anchor:middle">robot (air)</text>
+  <text x="260" y="340" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">reaches foundation + bee interface</text>
+
+  <!-- up / down arrows along the column -->
+  <line x1="196" y1="226" x2="196" y2="166" style="stroke:#1f2937;stroke-width:2" marker-end="url(#arrow)"/>
+  <line x1="196" y1="286" x2="196" y2="346" style="stroke:#1f2937;stroke-width:2" marker-end="url(#arrow)"/>
+  <text x="188" y="200" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:10px;fill:#1f2937;text-anchor:end">up</text>
+  <text x="188" y="320" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:10px;fill:#1f2937;text-anchor:end">down</text>
+
+  <!-- Bee-library ME Interface, level -2 -->
+  <rect x="210" y="368" width="100" height="56" rx="4" style="fill:#c7d2fe;stroke:#3730a3;stroke-width:2"/>
+  <text x="260" y="392" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">ME Interface</text>
+  <text x="260" y="410" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">bee library: supply + archive</text>
+  <rect x="320" y="368" width="100" height="56" rx="4" style="fill:#e5e7eb;stroke:#374151;stroke-width:2"/>
+  <text x="370" y="392" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Adapter</text>
+  <text x="370" y="410" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">+ Database upgrade</text>
+
+  <!-- Housing column: chest +1, apiary 0, foundation -1 -->
+  <rect x="330" y="158" width="100" height="56" rx="4" style="fill:#fcd9b6;stroke:#9a3412;stroke-width:2"/>
+  <text x="380" y="182" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Output chest</text>
+  <text x="380" y="200" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">princess, drones, combs</text>
+
+  <rect x="330" y="228" width="100" height="56" rx="4" style="fill:#fecaca;stroke:#991b1b;stroke-width:3"/>
+  <text x="380" y="248" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;fill:#1f2937;text-anchor:middle">GT Industrial</text>
+  <text x="380" y="263" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;fill:#1f2937;text-anchor:middle">Apiary</text>
+  <text x="380" y="278" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:10px;fill:#4b5563;text-anchor:middle">output face: up</text>
+
+  <rect x="330" y="298" width="100" height="56" rx="4" style="fill:#d9f99d;stroke:#3f6212;stroke-width:2"/>
+  <text x="380" y="322" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Foundation</text>
+  <text x="380" y="340" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">swapped by the robot</text>
+
+  <!-- apiary output arrow into chest -->
+  <line x1="405" y1="226" x2="405" y2="216" style="stroke:#991b1b;stroke-width:2" marker-end="url(#arrow)"/>
+
+  <!-- network tags on the right of the blocks -->
+  <g style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px">
+    <text x="430" y="105" style="fill:#3730a3">ME network</text>
+    <text x="430" y="385" style="fill:#3730a3">ME network</text>
+    <text x="430" y="135" style="fill:#374151">OC network</text>
+    <text x="430" y="415" style="fill:#374151">OC network</text>
+  </g>
+  <line x1="426" y1="100" x2="500" y2="100" style="stroke:#3730a3;stroke-width:2"/>
+  <line x1="426" y1="396" x2="500" y2="396" style="stroke:#3730a3;stroke-width:2"/>
+  <line x1="500" y1="100" x2="500" y2="396" style="stroke:#3730a3;stroke-width:2;stroke-dasharray:6 4"/>
+  <text x="508" y="252" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#3730a3">ME cable</text>
+
+  <!-- front direction note -->
+  <line x1="312" y1="256" x2="328" y2="256" style="stroke:#0f766e;stroke-width:2" marker-end="url(#arrow)"/>
+
+  <!-- legend -->
+  <rect x="580" y="88" width="296" height="336" rx="8" style="fill:#f9fafb;stroke:#d0d7de;stroke-width:1.5"/>
+  <text x="596" y="114" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;fill:#1f2937">Rules</text>
+  <g style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#1f2937">
+    <text x="596" y="140">1. The robot only reaches front, up and down,</text>
+    <text x="612" y="156">so it steps one block up or down for each task.</text>
+    <text x="596" y="180">2. Levels +1 and -1 of the robot column must be air.</text>
+    <text x="596" y="204">3. Industrial Apiary: Auto-Queen ON, no Automation</text>
+    <text x="612" y="220">upgrade, item output facing the chest on top.</text>
+    <text x="596" y="244">4. The block under the housing is the foundation;</text>
+    <text x="612" y="260">the robot breaks and places it per mutation.</text>
+    <text x="596" y="284">5. Both ME Interfaces sit on the ME network; each</text>
+    <text x="612" y="300">Adapter (with a Database upgrade) sits on the</text>
+    <text x="612" y="316">OC network of the controller.</text>
+    <text x="596" y="340">6. Charger with a lever beside the parking spot;</text>
+    <text x="612" y="356">charge speed follows the redstone level.</text>
+    <text x="596" y="380">7. Plant the flower types your species want</text>
+    <text x="612" y="396">inside the queen's territory.</text>
+  </g>
+
+  <!-- colour key -->
+  <g style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563">
+    <rect x="24" y="470" width="14" height="14" style="fill:#99f6e4;stroke:#0f766e"/>
+    <text x="44" y="481">Robot (Beekeeper + Inventory Controller upgrades)</text>
+    <rect x="24" y="492" width="14" height="14" style="fill:#fecaca;stroke:#991b1b"/>
+    <text x="44" y="503">Housing (GT Industrial Apiary, or Apiary / Alveary block)</text>
+    <rect x="24" y="514" width="14" height="14" style="fill:#c7d2fe;stroke:#3730a3"/>
+    <text x="44" y="525">ME Interface (AE2)</text>
+    <rect x="360" y="470" width="14" height="14" style="fill:#e5e7eb;stroke:#374151"/>
+    <text x="380" y="481">OC Adapter with Database upgrade</text>
+    <rect x="360" y="492" width="14" height="14" style="fill:#fcd9b6;stroke:#9a3412"/>
+    <text x="380" y="503">Output chest (any chest)</text>
+    <rect x="360" y="514" width="14" height="14" style="fill:#d9f99d;stroke:#3f6212"/>
+    <text x="380" y="525">Foundation block position (dirt to start)</text>
+    <rect x="640" y="470" width="14" height="14" style="fill:#fde68a;stroke:#b45309"/>
+    <text x="660" y="481">OC Charger + lever</text>
+    <text x="640" y="503">Dashed outline = air the robot moves into</text>
+    <text x="640" y="525">Arrow on the robot = its front (the housing)</text>
+  </g>
+</svg>

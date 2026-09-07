@@ -1,133 +1,72 @@
-<div align="center">
-
-# GTNH Auto Bees
-
-**Hands-off Forestry bee breeding for GregTech: New Horizons, written in Lua for OpenComputers.**
-
-Ask for a species by number. The controller plans the whole mutation chain, robots breed every step in
-GT Industrial Apiaries, foundation blocks and climate upgrades get swapped automatically, and pure stock lands in
-your ME network. Watch it live on a screen or from Discord.
+# GTNH-Auto-Bees
 
 ![status](https://img.shields.io/badge/status-alpha%20%C2%B7%20not%20yet%20tested%20in%20game-orange)
-![lua](https://img.shields.io/badge/Lua-5.2%20%28OpenComputers%29-blue)
+![lua](https://img.shields.io/badge/Lua-5.3%20%28OpenComputers%29-blue)
 ![pack](https://img.shields.io/badge/GTNH-2.7%2B-green)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-</div>
+Hands-off Forestry bee breeding for GregTech: New Horizons, written in Lua for OpenComputers.
+Ask for a species by number, the controller plans the whole mutation chain, robots breed every step in
+GT Industrial Apiaries, foundation blocks and climate upgrades get swapped automatically, and pure stock
+lands in your ME network. Watch it on a screen or from Discord.
 
----
+> [!CAUTION]
+> This is an alpha. Nothing here has run on a live GTNH server yet. Every OpenComputers and GregTech call
+> was taken from the GTNH source, and the breeding logic is covered by a simulator, but expect to confirm
+> a few things in game first. See [Status](#status).
 
-## What it does
+## Content
 
-- **Numbered catalog.** Every species gets a stable number on the first survey (`1xxx` Forestry, `2xxx` Extra Bees,
-  `3xxx` Magic Bees, `4xxx` GregTech). `!breed 4137` is all you type.
-- **Whole-chain planning.** The mutation graph is read straight out of the game through an adapter, so every GT,
-  Magic Bees and Extra Bees mutation and all of its conditions are known. Ask for a deep species and the planner
-  schedules the fifty steps in between, skipping anything you already own.
+- [Information](#information)
+- [Installation](#installation)
+- [Setup](#setup)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Status](#status)
+- [Credits](#credits)
+
+<a id="information"></a>
+
+## Information
+
+The program has two roles that share one install:
+
+- **Controller** (a computer with a screen): reads the mutation graph out of the game, numbers every species,
+  plans chains, keeps a job queue, serves the robots from the ME network, draws the GUI and talks to Discord.
+- **Cell** (a robot next to a housing): breeds one job at a time. Fetch a princess and drones from the library,
+  set the foundation and climate, run generations, analyze offspring, purify, stockpile, archive.
+
+What it does:
+
+- **Numbered catalog.** Every species gets a stable number on the first survey: `1xxx` Forestry, `2xxx` Extra Bees,
+  `3xxx` Magic Bees, `4xxx` GregTech. `breed 4137` is all you type.
+- **Whole-chain planning.** The mutation graph comes from `getBeeBreedingData()` through an adapter, so every
+  GT, Magic Bees and Extra Bees mutation and its conditions are known. Ask for a deep species and the planner
+  schedules the steps in between, skipping anything you already own.
 - **Requirements handled by robots.** Foundation blocks are swapped under the housing, Industrial Apiary climate
-  upgrades (heater, cooler, humidifier, dryer, Hell emulation) are installed per mutation, and offspring are analyzed in
-  the robot's own inventory. Nothing needs a Mutatron.
-- **Purity guaranteed.** A job only finishes when the princess is pure-bred and the requested number of pure drones is
-  archived. Only analyzed, pure bees ever enter the library.
-- **Extras on the way.** `!breed 4137 extra 4051=64 4060=32` keeps 64 and 32 drones of two intermediates,
-  `all 16` keeps 16 of every intermediate. Intermediates are also stockpiled automatically in proportion to how
-  unlikely the next mutation is, and a job that runs out of a parent species queues a restock instead of failing.
+  upgrades (heater, cooler, humidifier, dryer, Hell emulation) are installed per mutation, offspring are analyzed
+  in the robot's own inventory. No Mutatron anywhere.
+- **Purity guaranteed.** A job finishes only when the princess is pure-bred and the requested number of pure drones
+  is archived. Only analyzed, pure bees ever enter the library.
+- **Extras on the way.** `breed 4137 extra 4051=64 4060=32` keeps 64 and 32 drones of two intermediates,
+  `all 16` keeps 16 of every intermediate. Intermediates are stockpiled in proportion to how unlikely the next
+  mutation is, and a job that runs out of a parent species queues a restock instead of failing.
 - **Needs lists.** Per request and for the whole game: which foundation blocks are stocked, craftable, or missing a
-  pattern; which climate upgrades; which remote stations.
-- **Live everywhere.** A text GUI on the controller, events posted to Discord, commands accepted from Discord.
+  pattern, which climate upgrades, which remote stations.
+- **Live everywhere.** A text GUI on the controller, events posted to Discord, commands accepted from Discord,
+  optional JSON status pushed to a host of your own.
 
-## How it works
+#### Controls
 
-```mermaid
-flowchart LR
-    subgraph Controller["Controller  (beectl)"]
-        GUI[Screen GUI]
-        Planner[Planner]
-        Queue[Job queue]
-        Lib[Library view]
-        Disc[Discord bridge]
-    end
-    subgraph Cell["Breeding cell  (beecell)"]
-        Robot[Robot + Beekeeper Upgrade]
-        IA[GT Industrial Apiary]
-        Chest[Output chest]
-    end
-    ME[(ME network)]
-    BH[Bee House + Adapter]
-    Discord((Discord))
+<kbd>End</kbd> - Closing the program
 
-    BH -- "getBeeBreedingData()" --> Planner
-    ME -- bees, blocks, upgrades --> Lib
-    Planner --> Queue --> Robot
-    Robot -- swapQueen / swapDrone --> IA
-    IA -- offspring --> Chest --> Robot
-    Robot -- "analyze()" --> Robot
-    Robot -- pure bees --> ME
-    ME -- ME Interface --> Robot
-    Robot -- events --> GUI
-    Disc <--> Discord
-```
+<kbd>Arrow Up</kbd> / <kbd>Arrow Down</kbd> - Scroll the log
 
-The robot runs one **job** at a time: take a princess and drones from the library, set foundation and climate, then
-loop generations. Each generation is decided from the princess in hand:
+<kbd>Page Up</kbd> / <kbd>Page Down</kbd> - Scroll the queue
 
-| Phase | Princess state | Mate |
-|---|---|---|
-| convert | not yet the first parent species | drones of parent A |
-| mutate | pure A, no hit yet | drones of parent B |
-| purify | carries the target on one allele, or a target drone exists | best target carrier |
-| stockpile | pure target | pure target drones, until `keep` drones are archived |
+Type a command and press <kbd>Enter</kbd>. The same words work in Discord with the `!` prefix.
 
-Offspring are prescreened by display name, so honey is only spent on bees that could be interesting, plus the
-princess.
-
-## The breeding cell
-
-```
-          level +1 :  [Main ME Interface]   <- up: honey, foundation blocks, upgrades; junk goes back
-                      [Robot @ +1] -> front: [Output chest]  (on top of the housing)
-          level  0 :  [Robot @  0] -> front: [GT Industrial Apiary]      [Charger] behind the robot
-          level -1 :  [Robot @ -1] -> front: [Foundation block position]
-                      [Bee-library ME Interface]  <- down: princess/drone supply, pure bees archived
-```
-
-- The robot parks at level 0 and steps up or down one block for the chest, the interfaces and the foundation.
-- Both ME Interfaces are touched by an **Adapter with a Database upgrade** so the controller can stock them.
-- Industrial Apiary settings: **Auto-Queen on**, **no Automation upgrade**, item output facing the chest on top.
-  Recommended upgrades: one speed, four lifespan, light, sky, seal. Climate upgrades are added per job.
-- Robot parts: Beekeeper Upgrade, Inventory Controller Upgrade, two Inventory Upgrades, wireless network card, a
-  pick in the tool slot. Slot 1 holds honey drops, slot 2 is scratch, the rest is working space.
-- Somewhere on the network a cheap **Bee House with an Adapter** provides the mutation data. The GT machine does not
-  expose it.
-- Plant the flower types your target species want inside the housing's territory.
-
-Other housings (Apiary, Magic Apiary, Alveary) are described as drivers in `lib/bb/housing.lua`; the Industrial
-Apiary is the one this has been designed around because its built-in acceleration makes a generation take seconds.
-
-## Install
-
-Full parts list, layout and step-by-step setup: **[SETUP.md](SETUP.md)**.
-
-On the controller computer and on each robot (internet card, or copy the repo onto a floppy):
-
-```
-wget https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main/install.lua /tmp/install.lua
-/tmp/install.lua https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main          # controller
-/tmp/install.lua https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main robot    # robot
-```
-
-Then:
-
-1. `survey` on the controller. It reads the graph, numbers the species, checks every condition string and writes
-   `/home/beebreeder/catalog.txt` and `needs_global.txt`. Report any line under **UNPARSED**.
-2. Edit `/etc/beebreeder.cfg`: the ME Interface component addresses for each cell, the cell's biome values, any
-   remote stations you have, and Discord if you want it.
-3. Edit `/etc/beecell.cfg` on the robot: the cell name and housing type.
-4. `beectl` on the controller, `beecell` on the robot. Add `beecell` to `/home/.shrc` so it survives restarts.
-
-## Commands
-
-Same words on the controller's input line and in Discord (prefix `!`):
+#### Interface
 
 | Command | Effect |
 |---|---|
@@ -140,59 +79,319 @@ Same words on the controller's input line and in Discord (prefix `!`):
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
 | `cancel j12` / `cancel r3` | stop a job or a whole request |
+| `scan`, `survey` | rescan the ME library, re-read the mutation graph |
+| `settings` | show and change Discord and host settings, `settings test host` probes the host |
 
-## Discord
+<a id="installation"></a>
 
-Create a bot at the Discord developer portal, invite it with *Send Messages* and *Read Message History*, then set
-`token`, `channel` and `enabled = true` in `/etc/beebreeder.cfg`. The controller polls the channel every few seconds
-for `!commands` and posts job starts, phase changes, hits, completions and anything it needs from you. A webhook URL
-works for posting only. The GTNH OpenComputers config allows HTTP with headers by default; the survey tells you if a
-server has turned it off.
+## Installation
 
-## Repository layout
+> [!CAUTION]
+> The installer needs an Internet Card. If your server runs Java 8 with old certificates, GitHub downloads can
+> fail; then copy the repository onto a floppy and install by hand.
 
+To run the controller you need a computer with:
+
+| Item | Count | Notes |
+|---|---|---|
+| Computer Case T3 | 1 | T2 works for a single cell; T3 leaves room for more cells and cards |
+| CPU T3 | 1 | component limit 16; a Server Rack with Component Buses past about 6 cells |
+| Memory T3.5 | 2 | the planner holds the whole mutation graph in RAM |
+| Hard Disk T2 or T3 | 1 | OpenOS + data |
+| EEPROM (Lua BIOS) | 1 | |
+| Graphics Card T3 | 1 | |
+| Screen T3 | 1+ | a multiblock screen is nicer; T3 gives the 160x50 text grid |
+| Keyboard | 1 | |
+| Wireless Network Card T2 | 1 | or wired OC cable to every robot |
+| Internet Card | 1 | installer, Discord, host link |
+| Disk Drive + OpenOS floppy | 1 | to install the OS once |
+| OC Power Converter or Charger power | 1 | any EU/RF source |
+
+Each cell needs a robot assembled in the Electronics Assembler with:
+
+| Item | Count | Notes |
+|---|---|---|
+| Computer Case T2 (T3 recommended) | 1 | T2 has 3 tier-2 + 3 tier-1 upgrade slots, T3 has 3+3+3 |
+| CPU T2 | 1 | |
+| Memory T2 | 2 | |
+| Hard Disk T1 | 1 | with OpenOS installed |
+| EEPROM (Lua BIOS) | 1 | |
+| Beekeeper Upgrade | 1 | GTNH-only OpenComputers item, tier 2 slot |
+| Inventory Controller Upgrade | 1 | tier 2 slot |
+| Inventory Upgrade | 2 | 16 slots each; 32 working slots keeps big generations comfortable |
+| Wireless Network Card T2 | 1 | |
+| Graphics Card T1 + Screen T1 + Keyboard | 1 each | optional, but you will want to see the robot's console |
+| Disk Drive | 1 | optional, to install OpenOS from a floppy directly on the robot |
+| Pick (tool slot) | 1 | foundation swaps wear it; a self-repairing or high-durability pick |
+| OC Charger + lever | 1 | next to the robot's parking spot; charge speed follows the redstone level |
+
+Install the basic OpenOS on the computer or robot, then run the installer:
+
+```shell
+wget -f https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main/installer.lua && installer
 ```
-bin/survey.lua        first run: graph, catalog, condition check, global needs list
-bin/beectl.lua        controller: planner, queue, dispatch, GUI, Discord
-bin/beecell.lua       robot worker
-lib/bb/graph.lua      mutation graph and the planner (hyper-edge shortest path)
-lib/bb/breeder.lua    the per-job state machine, hardware-independent
-lib/bb/conditions.lua parses "Requires X as a foundation." and friends
-lib/bb/climate.lua    Forestry climate math for Industrial Apiary upgrades
-lib/bb/catalog.lua    stable species numbering
-lib/bb/genome.lua     helpers over OpenComputers bee item stacks
-lib/bb/ae2.lua        ME network: library scan, crafting, stocking interfaces
-lib/bb/net.lua        controller <-> robot messages
-lib/bb/discord.lua    Discord REST over the internet card
-lib/bb/needs.lua      needs lists
-etc/*.cfg             example configs
-test/                 Lua 5.2 tests incl. a Forestry-like breeding simulator
+
+It downloads the latest release archive into `/home` (falling back to the main branch when no release exists),
+keeps an existing `config.lua`, and offers to create the autostart. To start by hand:
+
+```shell
+main
 ```
 
-## Testing without a server
+> [!NOTE]
+> On the first start a setup guide runs in the terminal: it lists the components it can see, lets you pick the
+> ME Interfaces for the cell, the biome, and Discord and host settings, and saves them to `settings.dat`.
+> Run it again any time with `main setup`. On a robot, `main` starts the cell worker instead of the GUI.
+> Autostart is a `.shrc` in `/home` containing `main`.
 
+<a id="setup"></a>
+
+## Setup
+
+> [!NOTE]
+> For easy copying of addresses, use the Analyzer from the OpenComputers mod. Right-click a component and its
+> address is written to chat; click it to copy.
+
+### Data source
+
+#### Components
+
+- Bee House (Forestry): 1
+- Adapter: 1
+
+#### Description
+
+The mutation list comes from `getBeeBreedingData()` on a Forestry bee housing. Any Forestry housing works; a cheap
+Bee House is enough. Put an Adapter next to it and cable the Adapter to the controller.
+
+> [!CAUTION]
+> The GT Industrial Apiary does not expose this component. You need a Forestry housing for the data even if you
+> breed in GT machines.
+
+### Breeding cell
+
+#### Components
+
+- GT Industrial Apiary: 1
+- Chest: 1
+- ME Interface: 2
+- Adapter: 2
+- Database Upgrade T1: 2
+- Robot (see the parts table above): 1
+- Charger + lever: 1
+- ME cable to both interfaces, OC cable from both Adapters to the controller
+
+#### Layout
+
+![Cell layout](docs/cell-layout.svg)
+
+The robot parks at level 0 facing the housing and only ever moves straight up or down inside its column. Level +1
+gives it the output chest (front) and the main ME Interface (up); level -1 gives it the foundation position
+(front) and the bee-library ME Interface (down). Keep both column blocks free.
+
+#### Industrial Apiary settings
+
+- **Auto-Queen ON.** The machine only moves a freshly mated queen back into the slot; the returned princess still
+  goes to the chest, which is what the robot expects.
+- **No Automation upgrade.** It re-mates the returned princess with whatever drone is left and destroys controlled
+  pairing.
+- Item output facing the chest on top, speed lock on so installed speed upgrades take effect.
+- Recommended upgrades: one speed (speed 5 is 32x at 8,192 EU/t, speed 6 is 64x at 32,768 EU/t), four lifespan,
+  light, sky, seal. Climate upgrades are added and removed by the robot per job.
+- A dirt block under the machine as the placeholder foundation.
+- Flowers of the target species' flower types inside the queen's territory.
+
+#### Climate upgrade pool
+
+Shared by every cell through the ME network, installed per job:
+
+| Item | Count | Notes |
+|---|---|---|
+| Heater upgrade | 16 | +0.25 temperature each |
+| Cooler upgrade | 16 | |
+| Humidifier upgrade | 16 | |
+| Dryer upgrade | 16 | |
+| Hell emulation upgrade | 1 | Hellish temperature without a Nether station |
+| Desert / Plains / Jungle / Winter / Ocean emulation | 1 each | only for biome-type conditions |
+
+#### Consumables
+
+| Item | Rate | Source |
+|---|---|---|
+| Honey Drop | 2 to 5 per generation | centrifuged combs; stocked in the main interface, slot 1 |
+| Foundation blocks | 1 per distinct block, reusable | AE2 patterns; the survey writes the full list to `needs_global.txt` |
+| Pick durability | 1 per foundation swap | |
+| EU | HV plus whatever the speed upgrade adds | |
+
+### Network overview
+
+![Overview](docs/overview.svg)
+
+One controller serves any number of cells. Robots talk to it over the wireless card; the Adapters and ME
+Interfaces of every cell are on the controller's OC network and the ME network respectively.
+
+> [!NOTE]
+> Remote stations for dimension and biome-ID conditions (an Apiary, Transposer, Adapter, EnderStorage chest pair
+> and an OpenComputers P2P tunnel on a quantum-linked ME network) are planned but not supported by the code yet.
+
+<a id="configuration"></a>
+
+## Configuration
+
+General configuration lives in `config.lua`. The setup guide writes its answers to `settings.dat`, which is merged
+over the `controller` and `cell` sections at start, so `config.lua` stays a readable template.
+
+#### Controller part
+
+```lua
+controller = {
+  dataDir = "/home/data",            -- graph.dat, catalog.dat, state.dat, catalog.txt, needs_global.txt
+  port = 7311,                       -- wireless / wired port shared with the robots
+  ae2 = { network = nil, database = nil }, -- ME network component and Database upgrade, nil = first found
+  cells = {
+    cell1 = {
+      housing = "gt_iapiary",
+      mainInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- interface above the robot column
+      beeInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",  -- interface below the robot column
+      base = { temp = 0.8, hum = 0.4 },                       -- biome values where the cell stands
+    },
+  },
+  stations = {},                     -- remote stations you have built, e.g. dimension = { ["End"] = true }
+  defaults = { keepDrones = 8, droneSupply = 16, maxGenerations = 400, warnAfter = 60 },
+},
 ```
+
+#### Cell part
+
+Used when `main` runs on a robot. `name` must match a key in `controller.cells`.
+
+```lua
+cell = {
+  name = "cell1",
+  port = 7311,
+  housing = "gt_iapiary",            -- gt_iapiary | apiary | magic_apiary | alveary
+  slots = { honey = 1, scratch = 2, firstWork = 3 },
+  cycleTimeout = 900,                -- seconds a queen may work before the cell is called stuck
+  keepUpgrades = { speed = true, lifespan = true }, -- never evicted to make room for climate upgrades
+},
+```
+
+#### Logger part
+
+Same logger as the reference programs: a Discord webhook for warnings, a file, and the scrolling list on screen.
+
+```lua
+logger = loggerLib:newFormConfig({
+  name = "Auto Bees",
+  timeZone = 0,
+  handlers = {
+    discordLoggerHandler:newFormConfig({ logLevel = "warning", messageFormat = "{Time:%d.%m.%Y %H:%M:%S} [{LogLevel}]: {Message}", discordWebhookUrl = "" }),
+    fileLoggerHandler:newFormConfig({ logLevel = "debug", messageFormat = "{Time:%d.%m.%Y %H:%M:%S} [{LogLevel}]: {Message}", filePath = "logs.log" }),
+    scrollListLoggerHandler:newFormConfig({ logLevel = "info", logsListSize = 64 }),
+  }
+}),
+```
+
+#### Discord
+
+Two independent pieces:
+
+- A **webhook** posts events (jobs started, hits, phases, completions, things the controller needs from you).
+  [How to create a Discord webhook](https://www.svix.com/resources/guides/how-to-make-webhook-discord/)
+- A **bot token + channel id** additionally lets the controller poll the channel for `!commands`. Create a bot in the
+  Discord developer portal and invite it with *Send Messages* and *Read Message History*.
+
+```lua
+discord = {
+  enabled = false,
+  token = "",          -- bot token
+  channel = "",        -- channel id
+  webhook = "",        -- optional webhook URL, posting only
+  pollInterval = 5,
+  prefix = "!",
+  statusInterval = 0,  -- seconds between live status message updates, 0 = off
+},
+```
+
+The GTNH OpenComputers config allows HTTP with custom headers by default; the setup guide tells you if a server has
+turned it off.
+
+#### Custom host
+
+Optional. When `host.url` is set the controller pushes a JSON status document to `<url>/status` every
+`host.pushInterval` seconds, so a page of your own can show the queue and the cells. `settings test host` probes
+the URL and reports the HTTP code and round trip time; the setup guide offers the same test.
+
+```lua
+host = {
+  url = "",            -- e.g. http://192.168.1.10:8080
+  pushInterval = 30,   -- seconds, 0 = never push
+},
+```
+
+<a id="development"></a>
+
+## Development
+
+The pure-logic modules run under a real Lua 5.2 on a PC:
+
+```shell
 pip install lupa
 python test/run_tests.py
 ```
 
-The suite runs under a real Lua 5.2 and includes a small genetics simulator that drives the breeder through convert,
-mutate, purify and stockpile.
+The suite includes a small Forestry-like genetics simulator that drives the breeding state machine through convert,
+mutate, purify and stockpile, and a stress run across many seeds and mutation chances. Nothing in `test/` ships in
+the release archive.
 
-## Status and known gaps
+Repository layout:
 
-This is a first cut and has **not run on a live GTNH server yet**. Everything about the OpenComputers and GregTech
-APIs was taken from the GTNH source, but the following are the first things to confirm in game:
+```
+main.lua               entry point: controller GUI on a computer, cell worker on a robot
+config.lua             configuration template
+version.lua            programVersion / configVersion for auto update
+installer.lua          downloads the latest release into /home
+lib/                   vendored MIT libraries: program, gui, logger, state machine, discovery
+src/graph.lua          mutation graph and planner (hyper-edge shortest path)
+src/breeder.lua        per-job breeding state machine, hardware independent
+src/controller.lua     planner, queue, dispatch, commands, Discord
+src/cell.lua           robot worker
+src/survey.lua         first run: graph, catalog, condition check, global needs list
+src/setup.lua          first-boot guide
+src/settings.lua       settings.dat handling
+src/conditions.lua     parses "Requires X as a foundation." and friends
+src/climate.lua        Forestry climate math for Industrial Apiary upgrades
+src/catalog.lua        stable species numbering
+src/genome.lua         helpers over OpenComputers bee item stacks
+src/ae2.lua            ME network: library scan, crafting, stocking interfaces
+src/net.lua            controller <-> robot messages
+src/discord.lua        Discord REST over the internet card
+src/http.lua           HTTP helper for the internet card
+src/connect.lua        connection tests (webhook, bot, host) and the JSON status push
+src/needs.lua          needs lists
+test/                  Lua 5.2 tests and the breeding simulator
+```
 
-- the queen and drone slot numbers of the Industrial Apiary as seen through the Inventory Controller (`6` and `7`
-  are configured in `lib/bb/housing.lua`)
-- the display labels of the Industrial Apiary upgrade items (`upgradeKeys` in `/etc/beecell.cfg`)
+<a id="status"></a>
+
+## Status
+
+Alpha. The program has **not run on a live GTNH server yet**. The first things to confirm in game:
+
+- the queen and drone slot numbers of the Industrial Apiary as seen through the Inventory Controller
+  (`6` and `7` are configured in `src/housing.lua`)
+- the display labels of the Industrial Apiary upgrade items (`upgradeKeys` in `config.lua`)
 - the exact text of GregTech's dimension and biome conditions (the survey lists anything it could not parse)
 
-Not done yet: remote dimension and biome stations, robot placement of flowers, harmful-effect handling beyond a
+Not built yet: remote dimension and biome stations, robot placement of flowers, harmful-effect handling beyond a
 blacklist, one robot serving several housings.
+
+<a id="credits"></a>
 
 ## Credits
 
-Built on the GTNH forks of OpenComputers (Beekeeper Upgrade), Forestry and GT5-Unofficial, with the GTNH wiki's bee
-pages as the reference for game rules.
+- `lib/` contains the MIT-licensed program, GUI, logger, state machine and discovery libraries by
+  [Navatusein](https://github.com/Navatusein/GTNH-OC-Libraries) (GUI library originally by CAHCAHbl4), vendored
+  unchanged. The repository layout, installer flow and release workflow follow the same author's programs.
+- Built on the GTNH forks of OpenComputers (Beekeeper Upgrade), Forestry and GT5-Unofficial, with the GTNH wiki's
+  bee pages as the reference for game rules.

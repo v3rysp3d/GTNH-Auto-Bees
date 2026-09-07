@@ -4,7 +4,7 @@
 --   { t = "job", from = "cell1", seq = 12, p = { ... payload ... } }
 -- Works over wireless (strength raised to 400) and wired networks, and
 -- through AE2 OpenComputers P2P tunnels since those carry the OC network.
-local util = require("bb.util")
+local util = require("src.util")
 
 local net = {}
 net.__index = net

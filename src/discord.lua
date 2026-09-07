@@ -1,23 +1,20 @@
--- bb.discord : Discord bridge over the OpenComputers internet card.
+-- Discord bridge over the internet card.
 --
 -- Outbound: bot token (POST /channels/{id}/messages) or a webhook URL.
 -- Inbound : polling GET /channels/{id}/messages?after=<lastId> with the bot token.
--- Needs the GTNH OC fork (internet.request(url, body, headers, method)) and the
--- server config defaults: enableHttp=true, enableHttpHeaders=true (both are the
--- GTNH pack defaults).
---
 -- Java's HttpURLConnection cannot send PATCH, so "edit" falls back to
 -- delete + post when PATCH is rejected.
-local util = require("bb.util")
-local json = require("bb.json")
+local json = require("src.json")
+local http = require("src.http")
 
 local discord = {}
 discord.__index = discord
 
 discord.API = "https://discord.com/api/v10"
+discord.userAgent = "DiscordBot (https://github.com/v3rysp3d/GTNH-Auto-Bees, 1.0)"
 
---- internet: the internet card component proxy
---- cfg: { token = "...", channel = "123", webhook = "https://...", pollLimit = 20 }
+---@param internet table|nil  internet card proxy
+---@param cfg table  { token, channel, webhook, pollLimit, lastId }
 function discord.new(internet, cfg)
   cfg = cfg or {}
   return setmetatable({
@@ -25,8 +22,6 @@ function discord.new(internet, cfg)
     token = cfg.token, channel = cfg.channel, webhook = cfg.webhook,
     pollLimit = cfg.pollLimit or 20,
     lastId = cfg.lastId,
-    timeout = cfg.timeout or 10,
-    userAgent = "DiscordBot (https://github.com/oc-beebreeder, 1.0)",
   }, discord)
 end
 
@@ -38,47 +33,16 @@ function discord:canRead()
   return self.internet ~= nil and self.token ~= nil and self.channel ~= nil
 end
 
---- Raw HTTP. Returns code, body or nil, err.
-function discord:http(method, url, body, extraHeaders)
-  if not self.internet then return nil, "no internet card" end
-  local headers = { ["User-Agent"] = self.userAgent, ["Accept"] = "application/json" }
-  if body then headers["Content-Type"] = "application/json" end
-  if self.token and url:find(discord.API, 1, true) == 1 then headers["Authorization"] = "Bot " .. self.token end
-  for k, v in pairs(extraHeaders or {}) do headers[k] = v end
-
-  local ok, handle = pcall(self.internet.request, url, body, headers, method)
-  if not ok or not handle then return nil, "request failed: " .. tostring(handle) end
-
-  local deadline = util.now() + self.timeout
-  while true do
-    local okc, connected, err = pcall(handle.finishConnect)
-    if not okc then pcall(handle.close) return nil, "connect error: " .. tostring(connected) end
-    if connected then break end
-    if err then pcall(handle.close) return nil, "connect error: " .. tostring(err) end
-    if util.now() > deadline then pcall(handle.close) return nil, "timeout" end
-    util.sleep(0.1)
-  end
-
-  local chunks = {}
-  while true do
-    local okr, chunk = pcall(handle.read)
-    if not okr then break end
-    if chunk == nil then break end
-    if chunk ~= "" then chunks[#chunks + 1] = chunk end
-    if util.now() > deadline + self.timeout then break end
-  end
-  local code = 0
-  local okResp, c = pcall(handle.response)
-  if okResp and type(c) == "number" then code = c end
-  pcall(handle.close)
-  return code, table.concat(chunks)
+function discord:http(method, url, body)
+  local headers = { ["User-Agent"] = discord.userAgent, Accept = "application/json" }
+  if self.token and url:find(discord.API, 1, true) == 1 then headers.Authorization = "Bot " .. self.token end
+  return http.request(self.internet, method, url, body, headers)
 end
 
---- Split a long text into Discord-sized pieces (limit 2000 chars).
+---Split a long text into Discord-sized pieces (limit 2000 chars).
 function discord.chunk(text, limit)
   limit = limit or 1900
-  local out, cur = {}, {}
-  local len = 0
+  local out, cur, len = {}, {}, 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     if len + #line + 1 > limit and #cur > 0 then
       out[#out + 1] = table.concat(cur, "\n")
@@ -91,21 +55,17 @@ function discord.chunk(text, limit)
   return out
 end
 
---- Post a message. Returns the message id (bot only) or true, or nil, err.
-function discord:post(text, opts)
-  opts = opts or {}
+---Post a message. Returns the message id (bot) or true, or nil, err.
+function discord:post(text)
   if not self:enabled() then return nil, "discord disabled" end
-  local pieces = discord.chunk(text)
   local lastId
-  for _, piece in ipairs(pieces) do
+  for _, piece in ipairs(discord.chunk(text)) do
     local body = json.encode({ content = piece, allowed_mentions = { parse = json.array({}) } })
-    local code, resp, err
-    if self.token and self.channel and not opts.webhookOnly then
+    local code, resp
+    if self.token and self.channel then
       code, resp = self:http("POST", discord.API .. "/channels/" .. self.channel .. "/messages", body)
-    elseif self.webhook then
-      code, resp = self:http("POST", self.webhook .. "?wait=true", body)
     else
-      return nil, "no token/channel or webhook"
+      code, resp = self:http("POST", self.webhook .. "?wait=true", body)
     end
     if not code then return nil, resp end
     if code < 200 or code >= 300 then return nil, "http " .. code .. ": " .. tostring(resp):sub(1, 200) end
@@ -121,20 +81,19 @@ function discord:delete(messageId)
   return code ~= nil and code >= 200 and code < 300
 end
 
---- Edit a message in place; falls back to delete + post. Returns the (possibly new) id.
+---Edit a message in place; falls back to delete + post. Returns the (possibly new) id.
 function discord:edit(messageId, text)
   if not self:canRead() then return nil, "edit needs a bot token" end
   if messageId then
     local body = json.encode({ content = text:sub(1, 1990) })
-    local code, resp = self:http("PATCH", discord.API .. "/channels/" .. self.channel .. "/messages/" .. messageId, body)
+    local code = self:http("PATCH", discord.API .. "/channels/" .. self.channel .. "/messages/" .. messageId, body)
     if code and code >= 200 and code < 300 then return messageId end
     self:delete(messageId)
   end
   return self:post(text)
 end
 
---- Fetch new messages since the last poll. Returns a list of
---- { id=, author=, content=, bot=bool } in chronological order.
+---Fetch new messages since the last poll, oldest first: { id, author, content, bot }.
 function discord:poll()
   if not self:canRead() then return {}, "poll needs a bot token" end
   local url = discord.API .. "/channels/" .. self.channel .. "/messages?limit=" .. self.pollLimit
@@ -145,7 +104,6 @@ function discord:poll()
   local data = json.decode(resp)
   if type(data) ~= "table" then return {}, "bad json" end
   local out = {}
-  -- Discord returns newest first
   for i = #data, 1, -1 do
     local m = data[i]
     if type(m) == "table" and m.id then
@@ -158,14 +116,10 @@ function discord:poll()
       self.lastId = m.id
     end
   end
-  if not self.lastId and #data == 0 then
-    -- first poll on an empty channel: nothing to remember yet
-  end
   return out
 end
 
---- On first start we do not want to replay the channel history: remember
---- the newest id without acting on anything.
+---Remember the newest message id without acting on history.
 function discord:syncCursor()
   if not self:canRead() then return false end
   local code, resp = self:http("GET", discord.API .. "/channels/" .. self.channel .. "/messages?limit=1")

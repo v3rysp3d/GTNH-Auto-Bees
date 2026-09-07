@@ -1,0 +1,117 @@
+-- End to end: controller + robot cell + simulated Industrial Apiary + ME
+-- network, all in one Lua state. Requests a two-step chain whose second
+-- step needs a foundation block (autocrafted) and a Hot climate (heater
+-- upgrade installed by the robot).
+local sim = require("sim_genetics")
+local fake = require("fake_oc")
+
+sim.mutations[2].foundation = "Block of Copper"
+sim.mutations[2].temperature = "Hot"
+
+local env = fake.install({ sim = sim, seed = 11 })
+
+local util = require("src.util")
+local graph = require("src.graph")
+local genome = require("src.genome")
+
+-- data the survey would have produced
+local dataDir = TESTS .. "/tmp"
+util.saveTable(dataDir .. "/graph.dat", graph.fromBreedingData(sim.breedingData(), {
+  { name = "Common", uid = "forestry.speciesCommon" }, { name = "Cultivated", uid = "forestry.speciesCultivated" } }):toTable())
+util.writeFile(dataDir .. "/catalog.dat", "{byId={},nextId={}}")
+util.writeFile(dataDir .. "/state.dat", "{requests={},jobs={},nextId=1}")
+
+-- ME contents
+local me = env.me
+local function drones(species, n)
+  local st = sim.mkBee("drone", species, species, true)
+  st.size = n
+  return st
+end
+me.add(sim.mkBee("princess", "Forest", "Forest", true))
+me.add(drones("Forest", 48))
+me.add(drones("Meadows", 48))
+me.add({ name = "Forestry:honeyDrop", label = "Honey Drop", size = 200 })
+me.add({ name = "gregtech:apiaryUpgrade", label = "Industrial Apiary Heater Upgrade", size = 16 })
+me.patterns = { "Block of Copper" }
+
+-- controller
+env.side = "controller"
+local controllerLib = require("src.controller")
+local ctl = controllerLib:new({
+  dataDir = dataDir, port = 7311, ae2 = {},
+  cells = { cell1 = { housing = "gt_iapiary", mainInterface = "iface-main", beeInterface = "iface-bees", base = { temp = 0.8, hum = 0.4 } } },
+  stations = {}, defaults = { keepDrones = 4, droneSupply = 16, maxGenerations = 400, warnAfter = 60 },
+  honeyLabel = "Honey Drop", honeyStock = 64, chanceWeight = 0.1, foundationCostBase = 2, libraryScanInterval = 0,
+  effectBlacklist = {}, discord = { enabled = false }, conditionPatterns = {}, host = {},
+}, env.logger)
+ctl:init()
+
+-- robot
+env.side = "robot"
+local cellLib = require("src.cell")
+local cell = cellLib:new({
+  name = "cell1", port = 7311, housing = "gt_iapiary", quiet = true,
+  slots = { honey = 1, scratch = 2, firstWork = 3 }, honeyMin = 8, honeyFetch = 32,
+  startTimeout = 20, cycleTimeout = 900, requestTimeout = 90,
+  interface = { main = { honey = 1, supply = 2, dump = 9 }, bees = { princess = 1, drone = 2, archive = 9 } },
+  upgradeKeys = { heater = "heater", cooler = "cooler", humidifier = "humidif", dryer = "dryer", hell = "hell",
+    speed = "speed", lifespan = "lifespan", light = "light", sky = "sky", seal = "seal" },
+  keepUpgrades = { speed = true, lifespan = true }, maxUpgrades = 8, statePath = TESTS .. "/tmp/cell.state",
+}, env.logger)
+cell:start()
+
+T.run("integration: cell registers with the controller", function()
+  cell:step()
+  ctl:tick()
+  T.ok(ctl.cells.cell1 ~= nil, "controller knows cell1")
+  T.eq(ctl.cells.cell1.status, "idle", "cell1 idle")
+end)
+
+T.run("integration: breed Cultivated through Common with foundation + heater", function()
+  local res = ctl:command("breed Cultivated keep 4", "test")
+  T.ok(res:match("queued"), "request accepted: " .. res)
+  local req = ctl.S.requests[1]
+  T.ok(req ~= nil, "request stored")
+  local targets = {}
+  for _, jid in ipairs(req.jobs) do targets[#targets + 1] = ctl.S.jobs[jid].target end
+  T.eq(targets, { "Common", "Cultivated" }, "two jobs in chain order")
+
+  local rounds = 0
+  while req.status == "active" and rounds < 60 do
+    rounds = rounds + 1
+    ctl:tick()
+    cell:step()
+    ctl:tick()
+  end
+  T.eq(req.status, "done", "request finished (status " .. tostring(req.status) .. " after " .. rounds .. " rounds)")
+
+  local lib = ctl.library
+  T.ok(lib.Common and lib.Common.drones >= 4, "Common drones archived: " .. tostring(lib.Common and lib.Common.drones))
+  T.ok(lib.Cultivated and lib.Cultivated.drones >= 4, "Cultivated drones archived: " .. tostring(lib.Cultivated and lib.Cultivated.drones))
+  T.ok(lib.Cultivated and lib.Cultivated.princesses >= 1, "Cultivated princess archived")
+  T.eq(env.world.foundation, "Block of Copper", "foundation swapped to Block of Copper")
+  T.ok(util.contains(env.me.craftRequests, "Block of Copper"), "foundation block was autocrafted")
+  local heaters = 0
+  for _, u in pairs(env.world.housing.upgrades) do if u.label:find("Heater") then heaters = heaters + u.size end end
+  T.eq(heaters, 1, "one heater upgrade installed")
+  T.ok((env.honeyUsed or 0) > 0, "honey was spent on analysis: " .. tostring(env.honeyUsed))
+
+  -- only pure bees ever reached the ME network
+  for _, st in ipairs(env.me.items) do
+    if genome.isBee(st) then T.ok(genome.analyzed(st) and genome.isPureAny(st), "library holds only analyzed pure bees: " .. genome.describe(st)) end
+  end
+  -- the housing was left empty and the robot parked
+  T.ok(env.world.housing.queen == nil and env.world.housing.drone == nil, "housing emptied after the job")
+  T.eq(env.world.level, 0, "robot parked at level 0")
+end)
+
+T.run("integration: status and settings commands", function()
+  T.ok(ctl:command("status", "test"):match("requests:"), "status renders")
+  T.ok(ctl:command("queue", "test"):match("queue empty"), "queue empty after completion")
+  T.ok(ctl:command("settings", "test"):match("discord:"), "settings show")
+  T.ok(ctl:command("settings test", "test"):match("no internet card"), "settings test reports missing internet card")
+  local v = ctl:getValues()
+  T.eq(v.cellCount, 1, "gui values: one cell")
+  T.ok(#v.queue >= 1 and #v.cells >= 1, "gui values: lists present")
+end)

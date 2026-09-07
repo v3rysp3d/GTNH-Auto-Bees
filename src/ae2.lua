@@ -7,8 +7,8 @@
 --   store(filter, dbAddress, startSlot, count)  copy matching network stacks into a Database upgrade
 --   me_interface.setInterfaceConfiguration(slot, dbAddress, entry, size)  keep `size` of the db entry in `slot`
 --   me_interface.setInterfaceConfiguration(slot)                          clear that slot
-local util = require("bb.util")
-local genome = require("bb.genome")
+local util = require("src.util")
+local genome = require("src.genome")
 
 local ae2 = {}
 ae2.__index = ae2

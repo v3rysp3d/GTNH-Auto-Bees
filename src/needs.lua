@@ -1,7 +1,7 @@
 -- bb.needs : "what do I need to have available" lists, per plan and global.
-local util = require("bb.util")
-local conditions = require("bb.conditions")
-local climate = require("bb.climate")
+local util = require("src.util")
+local conditions = require("src.conditions")
+local climate = require("src.climate")
 
 local needs = {}
 

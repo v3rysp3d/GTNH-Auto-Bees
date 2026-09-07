@@ -1,0 +1,124 @@
+local loggerLib = require("lib.logger-lib")
+local discordLoggerHandler = require("lib.logger-handler.discord-logger-handler-lib")
+local fileLoggerHandler = require("lib.logger-handler.file-logger-handler-lib")
+local scrollListLoggerHandler = require("lib.logger-handler.scroll-list-logger-handler-lib")
+
+local config = {
+  enableAutoUpdate = false, -- Enable auto update on start (checks GitHub releases)
+
+  logger = loggerLib:newFormConfig({
+    name = "Auto Bees",
+    timeZone = 0, -- Your time zone
+    handlers = {
+      discordLoggerHandler:newFormConfig({
+        logLevel = "warning",
+        messageFormat = "{Time:%d.%m.%Y %H:%M:%S} [{LogLevel}]: {Message}",
+        discordWebhookUrl = "" -- Discord Webhook URL for warnings and errors (optional)
+      }),
+      fileLoggerHandler:newFormConfig({
+        logLevel = "debug",
+        messageFormat = "{Time:%d.%m.%Y %H:%M:%S} [{LogLevel}]: {Message}",
+        filePath = "logs.log"
+      }),
+      scrollListLoggerHandler:newFormConfig({
+        logLevel = "info",
+        logsListSize = 64
+      }),
+    }
+  }),
+
+  -- Used when `main` runs on the controller computer -------------------------
+  controller = {
+    dataDir = "/home/data",        -- graph.dat, catalog.dat, state.dat, catalog.txt, needs_global.txt
+    port = 7311,                   -- wireless / wired port shared with the robots
+
+    -- ME network component and Database upgrade addresses (nil = first one found)
+    ae2 = { network = nil, database = nil },
+
+    -- One entry per robot cell. The addresses are the ME Interface component
+    -- addresses (an Adapter with a Database upgrade touches each interface).
+    -- Use the OpenComputers Analyzer or `components` to read them.
+    cells = {
+      cell1 = {
+        housing = "gt_iapiary",                          -- gt_iapiary | apiary | magic_apiary | alveary
+        mainInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- interface above the robot column (honey, blocks, upgrades)
+        beeInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",  -- interface below the robot column (bee library)
+        base = { temp = 0.8, hum = 0.4 },                -- biome temperature / humidity where the cell stands (plains shown)
+      },
+    },
+
+    -- Remote stations you have built. Only listed conditions are plannable.
+    stations = {
+      -- dimension = { ["End"] = true, ["Moon"] = true },
+      -- biomeId = { ["Magical Forest"] = true },
+      -- gtmachine = true,
+    },
+
+    defaults = {
+      keepDrones = 8,          -- drones archived for a requested species
+      droneSupply = 16,        -- drones handed to a robot per fetch
+      maxGenerations = 400,    -- give up on a step after this many generations
+      warnAfter = 60,          -- warn after this many generations without a hit
+    },
+
+    honeyLabel = "Honey Drop",
+    honeyStock = 64,
+
+    chanceWeight = 0.1,        -- planner: cost per (100 / mutation chance)
+    foundationCostBase = 2,    -- planner: extra cost per foundation block
+    libraryScanInterval = 60,  -- seconds between ME library scans
+
+    effectBlacklist = {},      -- species names never bred at home, e.g. { ["Radioactive"] = true }
+
+    -- Discord commands (bot token + channel). Posting only works with a webhook too.
+    discord = {
+      enabled = false,
+      token = "",              -- bot token
+      channel = "",            -- channel id
+      webhook = "",            -- optional webhook URL (posting only)
+      pollInterval = 5,        -- seconds between command polls
+      prefix = "!",
+      statusInterval = 0,      -- seconds between live status message updates, 0 = off
+    },
+
+    -- Extra parsers if the survey reports UNPARSED condition strings
+    conditionPatterns = {
+      -- { pattern = "^Occurs only in dimension (.+)$", kind = "dimension" },
+    },
+  },
+
+  -- Used when `main` runs on a robot ------------------------------------------
+  cell = {
+    name = "cell1",                  -- must match a key in controller.cells
+    port = 7311,
+    housing = "gt_iapiary",
+
+    slots = { honey = 1, scratch = 2, firstWork = 3 },   -- robot inventory layout
+    honeyMin = 8,
+    honeyFetch = 32,
+
+    startTimeout = 20,               -- seconds to wait for the queen to appear after inserting
+    cycleTimeout = 900,              -- seconds a queen may work before the cell is called stuck
+    requestTimeout = 90,             -- seconds to wait for the controller to stock an interface
+
+    interface = {                    -- ME interface slot usage (must match the controller)
+      main = { honey = 1, supply = 2, dump = 9 },
+      bees = { princess = 1, drone = 2, archive = 9 },
+    },
+
+    -- substrings used to recognise Industrial Apiary upgrade items by label
+    upgradeKeys = {
+      heater = "heater", cooler = "cooler", humidifier = "humidif", dryer = "dryer", hell = "hell",
+      desert = "desert", plains = "plains", jungle = "jungle", winter = "winter", ocean = "ocean",
+      speed = "speed", lifespan = "lifespan", light = "light", sky = "sky", seal = "seal",
+      sieve = "sieve", production = "production", territory = "territor", flowering = "flower",
+      auto = "automat", stabilizer = "stabil", pollen = "pollen",
+    },
+    keepUpgrades = { speed = true, lifespan = true },   -- never evicted to make room for climate upgrades
+    maxUpgrades = 8,
+
+    statePath = "/home/cell.state",
+  },
+}
+
+return config

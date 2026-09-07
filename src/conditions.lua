@@ -11,7 +11,7 @@
 --   "Needs a running GT Machine below to breed"
 --   GT dimension: <localized "mutation.condition.dim"> .. " " .. dimName
 --   GT biome id:  <localized "mutation.condition.biomeid"> .. " " .. biomeName
-local util = require("bb.util")
+local util = require("src.util")
 
 local conditions = {}
 

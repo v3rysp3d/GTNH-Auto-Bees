@@ -1,11 +1,11 @@
 -- Pure-logic tests: util, json, conditions, catalog, climate, genome, graph.
-local util = require("bb.util")
-local json = require("bb.json")
-local conditions = require("bb.conditions")
-local catalog = require("bb.catalog")
-local climate = require("bb.climate")
-local genome = require("bb.genome")
-local graph = require("bb.graph")
+local util = require("src.util")
+local json = require("src.json")
+local conditions = require("src.conditions")
+local catalog = require("src.catalog")
+local climate = require("src.climate")
+local genome = require("src.genome")
+local graph = require("src.graph")
 
 T.run("util.serialize roundtrip", function()
   local t = { a = 1, b = "x\ny", c = { 1, 2, { d = true } }, [5] = 2.5 }

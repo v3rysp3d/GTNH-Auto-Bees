@@ -17,20 +17,24 @@ local genome = {}
 
 local kinds = { princess = "Princess", drone = "Drone", queen = "Queen" }
 
+-- exact item names; "Forestry:beeCombs" and friends are not bees
+genome.itemNames = {
+  ["Forestry:beePrincessGE"] = "princess",
+  ["Forestry:beeDroneGE"] = "drone",
+  ["Forestry:beeQueenGE"] = "queen",
+}
+
 function genome.isBee(stack)
   if type(stack) ~= "table" then return false end
-  local name = tostring(stack.name or "")
-  if name:find("Forestry:bee", 1, true) then return true end
+  if genome.itemNames[tostring(stack.name or "")] then return true end
   return type(stack.individual) == "table" and stack.individual.type == "bee"
 end
 
 --- "princess" | "drone" | "queen" | nil
 function genome.kind(stack)
   if not genome.isBee(stack) then return nil end
-  local name = tostring(stack.name or ""):lower()
-  if name:find("princess", 1, true) then return "princess" end
-  if name:find("drone", 1, true) then return "drone" end
-  if name:find("queen", 1, true) then return "queen" end
+  local byName = genome.itemNames[tostring(stack.name or "")]
+  if byName then return byName end
   local label = tostring(stack.label or "")
   for k, suffix in pairs(kinds) do if label:sub(-#suffix) == suffix then return k end end
   return nil

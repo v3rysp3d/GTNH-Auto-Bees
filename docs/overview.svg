@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 960 520" width="960" height="520">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" style="fill:#1f2937"/>
+    </marker>
+    <marker id="ame" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" style="fill:#3730a3"/>
+    </marker>
+    <marker id="anet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" style="fill:#b45309"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="520" rx="14" style="fill:#ffffff;stroke:#d0d7de;stroke-width:2"/>
+  <text x="24" y="38" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;fill:#1f2937">Network overview</text>
+  <text x="24" y="60" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;fill:#4b5563">Grey lines: OpenComputers network. Blue: ME network. Green dashed: wireless. Orange: internet card.</text>
+
+  <!-- Controller -->
+  <rect x="60" y="200" width="190" height="120" rx="8" style="fill:#e0f2fe;stroke:#075985;stroke-width:3"/>
+  <text x="155" y="230" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;fill:#1f2937;text-anchor:middle">Controller</text>
+  <text x="155" y="250" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#4b5563;text-anchor:middle">T3 computer + T3 screen</text>
+  <text x="155" y="268" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#4b5563;text-anchor:middle">planner, queue, GUI</text>
+  <text x="155" y="286" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#4b5563;text-anchor:middle">wireless card, internet card</text>
+  <text x="155" y="304" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:12px;fill:#4b5563;text-anchor:middle">runs: main</text>
+
+  <!-- Adapter + Bee House (mutation data) -->
+  <rect x="330" y="90" width="180" height="64" rx="8" style="fill:#e5e7eb;stroke:#374151;stroke-width:2"/>
+  <text x="420" y="114" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Adapter + Bee House</text>
+  <text x="420" y="134" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">mutation data, once</text>
+  <line x1="250" y1="222" x2="328" y2="130" style="stroke:#374151;stroke-width:2" marker-end="url(#a)"/>
+  <text x="240" y="160" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#374151">getBeeBreedingData()</text>
+
+  <!-- Adapter + DB on main interface -->
+  <rect x="330" y="200" width="180" height="56" rx="8" style="fill:#e5e7eb;stroke:#374151;stroke-width:2"/>
+  <text x="420" y="222" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Adapter + Database</text>
+  <text x="420" y="242" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">on the main ME Interface</text>
+  <line x1="250" y1="228" x2="328" y2="228" style="stroke:#374151;stroke-width:2" marker-end="url(#a)"/>
+
+  <!-- Adapter + DB on bee interface -->
+  <rect x="330" y="290" width="180" height="56" rx="8" style="fill:#e5e7eb;stroke:#374151;stroke-width:2"/>
+  <text x="420" y="312" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Adapter + Database</text>
+  <text x="420" y="332" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">on the bee-library ME Interface</text>
+  <line x1="250" y1="300" x2="328" y2="318" style="stroke:#374151;stroke-width:2" marker-end="url(#a)"/>
+  <text x="262" y="270" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#374151">stock / craft</text>
+
+  <!-- ME Interfaces -->
+  <rect x="560" y="200" width="150" height="56" rx="8" style="fill:#c7d2fe;stroke:#3730a3;stroke-width:2"/>
+  <text x="635" y="222" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">ME Interface</text>
+  <text x="635" y="242" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">main: honey, blocks, upgrades</text>
+  <line x1="510" y1="228" x2="558" y2="228" style="stroke:#374151;stroke-width:2"/>
+
+  <rect x="560" y="290" width="150" height="56" rx="8" style="fill:#c7d2fe;stroke:#3730a3;stroke-width:2"/>
+  <text x="635" y="312" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">ME Interface</text>
+  <text x="635" y="332" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">bee library</text>
+  <line x1="510" y1="318" x2="558" y2="318" style="stroke:#374151;stroke-width:2"/>
+
+  <!-- ME network cloud -->
+  <ellipse cx="840" cy="272" rx="92" ry="60" style="fill:#eef2ff;stroke:#3730a3;stroke-width:2"/>
+  <text x="840" y="262" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;fill:#1f2937;text-anchor:middle">ME network</text>
+  <text x="840" y="282" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">storage, bee library</text>
+  <text x="840" y="298" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">AE2 autocrafting</text>
+  <line x1="710" y1="228" x2="752" y2="258" style="stroke:#3730a3;stroke-width:2"/>
+  <line x1="710" y1="318" x2="752" y2="288" style="stroke:#3730a3;stroke-width:2"/>
+
+  <!-- Robot cell -->
+  <rect x="560" y="400" width="200" height="90" rx="8" style="fill:#99f6e4;stroke:#0f766e;stroke-width:3"/>
+  <text x="660" y="426" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;fill:#1f2937;text-anchor:middle">Robot cell</text>
+  <text x="660" y="446" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">Beekeeper Upgrade, Inventory Controller</text>
+  <text x="660" y="462" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">GT Industrial Apiary + chest + foundation</text>
+  <text x="660" y="478" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">runs: main (cell worker)</text>
+
+  <!-- wireless link controller <-> robot -->
+  <line x1="180" y1="320" x2="558" y2="440" style="stroke:#0f766e;stroke-width:2;stroke-dasharray:7 5" marker-end="url(#a)" marker-start="url(#a)"/>
+  <text x="300" y="400" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#0f766e">wireless: jobs, needs, events</text>
+
+  <!-- robot <-> interfaces (item flow) -->
+  <line x1="635" y1="398" x2="635" y2="348" style="stroke:#3730a3;stroke-width:2" marker-end="url(#ame)" marker-start="url(#ame)"/>
+  <text x="644" y="378" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#3730a3">princess / drone supply,</text>
+  <text x="644" y="392" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#3730a3">pure bees archived</text>
+  <line x1="720" y1="256" x2="720" y2="398" style="stroke:#3730a3;stroke-width:2;stroke-dasharray:3 3"/>
+  <text x="726" y="378" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#3730a3">honey, blocks,</text>
+  <text x="726" y="392" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#3730a3">upgrades</text>
+
+  <!-- Internet: Discord + custom host -->
+  <rect x="60" y="400" width="190" height="52" rx="8" style="fill:#fef3c7;stroke:#b45309;stroke-width:2"/>
+  <text x="155" y="422" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Discord</text>
+  <text x="155" y="440" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">webhook posts, bot reads commands</text>
+  <line x1="120" y1="320" x2="120" y2="398" style="stroke:#b45309;stroke-width:2" marker-end="url(#anet)" marker-start="url(#anet)"/>
+  <text x="128" y="362" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#b45309">events / commands</text>
+
+  <rect x="290" y="440" width="190" height="52" rx="8" style="fill:#fef3c7;stroke:#b45309;stroke-width:2"/>
+  <text x="385" y="462" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;fill:#1f2937;text-anchor:middle">Custom host</text>
+  <text x="385" y="480" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563;text-anchor:middle">HTTP status push to &lt;url&gt;/status</text>
+  <line x1="200" y1="320" x2="330" y2="438" style="stroke:#b45309;stroke-width:2" marker-end="url(#anet)"/>
+  <text x="180" y="384" style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#b45309">JSON status</text>
+
+  <!-- legend strip -->
+  <g style="font-family:Segoe UI,Arial,Helvetica,sans-serif;font-size:11px;fill:#4b5563">
+    <line x1="560" y1="130" x2="600" y2="130" style="stroke:#374151;stroke-width:2"/>
+    <text x="608" y="134">OC network (cable or P2P tunnel)</text>
+    <line x1="560" y1="150" x2="600" y2="150" style="stroke:#3730a3;stroke-width:2"/>
+    <text x="608" y="154">ME network (AE2)</text>
+    <line x1="560" y1="170" x2="600" y2="170" style="stroke:#0f766e;stroke-width:2;stroke-dasharray:7 5"/>
+    <text x="608" y="174">wireless (controller to robots)</text>
+    <line x1="780" y1="130" x2="820" y2="130" style="stroke:#b45309;stroke-width:2"/>
+    <text x="828" y="134">internet card</text>
+    <text x="780" y="154">one controller serves</text>
+    <text x="780" y="170">any number of cells</text>
+  </g>
+</svg>

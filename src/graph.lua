@@ -5,8 +5,8 @@
 --     chance = 15, specialConditions = { "Requires ..." } }
 -- Species are keyed by display name, the same string found in
 -- stack.individual.active.species.name.
-local util = require("bb.util")
-local conditions = require("bb.conditions")
+local util = require("src.util")
+local conditions = require("src.conditions")
 
 local graph = {}
 graph.__index = graph

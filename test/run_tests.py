@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover
     import lupa as luamod
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB = os.path.join(ROOT, "lib").replace("\\", "/")
+LIB = ROOT.replace("\\", "/")
 TESTS = os.path.join(ROOT, "test").replace("\\", "/")
 
 BOOT = r"""
@@ -24,7 +24,7 @@ T = {}
 T.failures, T.passed = {}, 0
 local function fmt(v)
   if type(v) == "table" then
-    local util = require("bb.util")
+    local util = require("src.util")
     return util.serialize(v)
   end
   return tostring(v)
@@ -50,6 +50,7 @@ def main():
     g.LIB = LIB
     g.TESTS = TESTS
     rt.execute(BOOT)
+    os.makedirs(os.path.join(ROOT, "test", "tmp"), exist_ok=True)
     files = sorted(glob.glob(os.path.join(ROOT, "test", "test_*.lua")))
     total_fail = 0
     for f in files:
