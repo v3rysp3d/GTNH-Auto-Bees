@@ -67,7 +67,7 @@ function survey.run(dataDir, say, opts)
   if not housingAddr then
     say("No 'bee_housing' component. Put an Adapter next to a Forestry Bee House and connect it.")
     say("(The GT Industrial Apiary does not expose it.)")
-    return false, "no bee_housing component"
+    return false, "no bee_housing component: place a Forestry Bee House (or Apiary) with an Adapter touching it on the controller's cable; the GT Industrial Apiary only shows up as gt_machine"
   end
   local bh = component.proxy(housingAddr)
 
