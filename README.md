@@ -80,7 +80,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
 | `cancel j12` / `cancel r3` | stop a job or a whole request |
 | `scan`, `survey` | rescan the ME library, re-read the mutation graph |
-| `settings` | show and change Discord and host settings, `settings test host` probes the host |
+| `settings` | show connection settings; `settings test` probes them; `settings discord webhook <url>`, `settings discord bot <token> <channel>`, `settings host <url>` change them |
 
 <a id="installation"></a>
 
@@ -294,22 +294,29 @@ logger = loggerLib:newFormConfig({
 
 #### Discord
 
-Two independent pieces:
+A webhook URL is all that is needed. Discord webhooks are one-way, so this is what each level gives you:
 
-- A **webhook** posts events (jobs started, hits, phases, completions, things the controller needs from you).
-  [How to create a Discord webhook](https://www.svix.com/resources/guides/how-to-make-webhook-discord/)
-- A **bot token + channel id** additionally lets the controller poll the channel for `!commands`. Create a bot in the
-  Discord developer portal and invite it with *Send Messages* and *Read Message History*.
+| Mode | You provide | You get |
+|---|---|---|
+| Webhook | a webhook URL | colour-coded event cards (job started, phase reached, done, failed, needs you), a status card that is replaced whenever a job starts or ends, the logger's warnings |
+| Bot, no hosting | a bot token and a channel id | all of the above plus `!commands` typed in the channel; the computer polls the channel every few seconds |
+| Relay bot | a bot process on a server of yours | buttons and slash commands (not part of this repository) |
+
+[How to create a Discord webhook](https://www.svix.com/resources/guides/how-to-make-webhook-discord/). Enter it in
+the setup guide or with `settings discord webhook <url>` on the controller; it is stored in `settings.dat`, never in
+`config.lua`. For commands, create an application in the Discord developer portal, add a bot, invite it with
+*Send Messages* and *Read Message History*, then `settings discord bot <token> <channel id>`.
 
 ```lua
 discord = {
   enabled = false,
-  token = "",          -- bot token
-  channel = "",        -- channel id
-  webhook = "",        -- optional webhook URL, posting only
-  pollInterval = 5,
+  webhook = "",         -- webhook URL (the guide or `settings discord webhook <url>` fills this)
+  token = "",           -- bot token (optional, for commands)
+  channel = "",         -- channel id (optional, for commands)
+  pollInterval = 5,     -- seconds between command polls (bot mode)
   prefix = "!",
-  statusInterval = 0,  -- seconds between live status message updates, 0 = off
+  statusCard = true,    -- keep one status message that is replaced on job start/end
+  statusInterval = 0,   -- also refresh the status card every N seconds, 0 = only on events
 },
 ```
 

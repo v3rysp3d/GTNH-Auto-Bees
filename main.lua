@@ -28,6 +28,14 @@ if args[1] == "setup" or settingsLib.needsSetup(config, stored, isRobot) then
   settingsLib.apply(config, settingsLib.load())
 end
 
+-- one webhook URL drives both the event cards and the logger's warnings
+local webhook = config.controller.discord and config.controller.discord.webhook or ""
+if webhook ~= "" then
+  for _, handler in ipairs(config.logger.handlers or {}) do
+    if handler.discordWebhookUrl ~= nil and handler.discordWebhookUrl == "" then handler.discordWebhookUrl = webhook end
+  end
+end
+
 ------------------------------------------------------------------------
 -- Robot: run the breeding cell worker, no GUI
 ------------------------------------------------------------------------

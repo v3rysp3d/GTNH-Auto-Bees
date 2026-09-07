@@ -69,7 +69,17 @@ function controller:new(cfg, logger)
   function obj:notify(fmt, ...)
     local msg = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
     self.logger:info(clean(msg))
-    if self.discordOn then self.discordQueue[#self.discordQueue + 1] = msg end
+    if self.discordOn then self.discordQueue[#self.discordQueue + 1] = { text = msg } end
+  end
+
+  ---Log a line and queue a Discord embed card for it.
+  ---kind: start | phase | done | failed | warn | needs   fields: { {name, value[, inline]} ... }
+  function obj:card(kind, title, fields, description)
+    self.logger:info(clean(title))
+    if self.discordOn then
+      self.discordQueue[#self.discordQueue + 1] = { embed = discord.embed(kind, title, description, fields) }
+      if kind == "start" or kind == "done" or kind == "failed" then self.statusDirty = true end
+    end
   end
 
   ----------------------------------------------------------------------
@@ -128,8 +138,13 @@ function controller:new(cfg, logger)
 
     self:scanLibrary(true)
     if self.discordOn then
-      if not self.S.discordLastId then self.dc:syncCursor(); self.S.discordLastId = self.dc.lastId; self:saveState() end
-      self.discordQueue[#self.discordQueue + 1] = "Auto Bees controller online. Type `" .. (dcfg.prefix or "!") .. "help`."
+      local dcfg = self.cfg.discord or {}
+      if self.dc:canRead() and not self.S.discordLastId then self.dc:syncCursor(); self.S.discordLastId = self.dc.lastId; self:saveState() end
+      local how = self.dc:canRead() and ("Type `" .. (dcfg.prefix or "!") .. "help` here for commands.")
+        or "Webhook mode: events and the status card are posted here; commands need a bot token."
+      self:card("info", "Auto Bees controller online", { { "Species", tostring(util.count(self.graph.species)) },
+        { "Cells configured", tostring(util.count(cfg.cells or {})) } }, how)
+      self.statusDirty = true
     end
 
     self.signalHandler = function(...) self:onSignal(...) end
@@ -468,8 +483,15 @@ function controller:new(cfg, logger)
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
           })
-          self:notify("%s -> %s: %s + %s -> %s%s", job.id, name, self:label(job.a), self:label(job.b), self:label(job.target),
-            job.foundation and (" [" .. job.foundation .. "]") or "")
+          local climateText = {}
+          for k, n in pairs(job.climate or {}) do climateText[#climateText + 1] = k .. " x" .. n end
+          self:card("start", string.format("%s started on %s: %s", job.id, name, self:label(job.target)), {
+            { "Parents", self:label(job.a) .. " + " .. self:label(job.b) },
+            { "Chance", tostring(job.chance) .. "%" },
+            { "Keep", tostring(job.keepDrones) .. " drones" },
+            { "Foundation", job.foundation or "none" },
+            { "Climate", #climateText > 0 and table.concat(climateText, ", ") or "as is" },
+          })
           self:saveState()
         end
       end
@@ -543,8 +565,13 @@ function controller:new(cfg, logger)
     if ok then
       job.status = "done"
       job.finished = util.now()
-      self:notify("%s done: %s in %d generations, %d drones + %s princess archived",
-        job.id, self:label(job.target), info.generations or 0, info.archivedDrones or 0, info.princess and "1" or "no")
+      self:card("done", string.format("%s done: %s", job.id, self:label(job.target)), {
+        { "Generations", tostring(info.generations or 0) },
+        { "Drones archived", tostring(info.archivedDrones or 0) },
+        { "Princess", info.princess and "yes" or "no" },
+        { "Honey used", tostring(info.honey or 0) },
+        { "Time", util.fmtSeconds(util.now() - (job.started or util.now())) },
+      })
     else
       local missing = (info.reason or ""):match("ran out of drones %(([^/%)]+)")
       if missing and req and self.graph.species[missing] then
@@ -564,11 +591,11 @@ function controller:new(cfg, logger)
         job.attempts = (job.attempts or 0) + 1
         if job.attempts < 3 and not (info.reason or ""):match("cancelled") then
           job.status = "pending"
-          self:notify("%s failed (%s), will retry", job.id, tostring(info.reason))
+          self:card("warn", string.format("%s failed, will retry", job.id), { { "Reason", tostring(info.reason) }, { "Target", self:label(job.target) } })
         else
           job.status = "failed"
           job.error = info.reason
-          self:notify("%s FAILED: %s", job.id, tostring(info.reason))
+          self:card("failed", string.format("%s FAILED: %s", job.id, self:label(job.target)), { { "Reason", tostring(info.reason) } })
         end
       end
     end
@@ -631,7 +658,7 @@ function controller:new(cfg, logger)
         c.phase = d.to
         local job = self.S.jobs[d.job]
         if d.to == "purify" or d.to == "stockpile" then
-          self:notify("%s: %s reached phase %s at generation %d", c.name, job and self:label(job.target) or "-", d.to, d.generation or 0)
+          self:card("phase", string.format("%s: %s reached %s at generation %d", c.name, job and self:label(job.target) or "-", d.to, d.generation or 0))
         end
       elseif p.kind == "warn" then
         self:notify("%s: %s", c.name, tostring(d.text))
@@ -922,14 +949,46 @@ function controller:new(cfg, logger)
   ----------------------------------------------------------------------
   -- Discord
   ----------------------------------------------------------------------
+  ---The status card: one message that is replaced whenever a job starts or ends.
+  function obj:statusEmbed()
+    local fields = {}
+    for _, name in ipairs(util.sortedKeys(self.cells)) do
+      local c = self.cells[name]
+      local job = c.job and self.S.jobs[c.job]
+      local value
+      if job then
+        value = string.format("%s -> %s\ngen %s, %s", job.id, self:label(job.target), tostring(c.gen or 0), tostring(c.phase or "-"))
+      else
+        value = c.status
+      end
+      fields[#fields + 1] = { name, value }
+    end
+    local pending, running = 0, 0
+    for _, j in pairs(self.S.jobs) do
+      if j.status == "pending" then pending = pending + 1 elseif j.status == "running" then running = running + 1 end
+    end
+    fields[#fields + 1] = { "Queue", string.format("%d running, %d pending", running, pending) }
+    fields[#fields + 1] = { "Library", string.format("%d species, %d princesses", util.count(self:ownedSet()), self:princessPool()) }
+    return discord.embed("status", "Auto Bees status", nil, fields)
+  end
+
+  function obj:refreshStatusCard()
+    if not self.discordOn or (self.cfg.discord or {}).statusCard == false then return end
+    local id = self.dc:replace(self.S.discordStatusId, { embeds = require("src.json").array({ self:statusEmbed() }) })
+    if id and id ~= true then self.S.discordStatusId = id; self:saveState() end
+    self.statusDirty = false
+  end
+
   function obj:discordTick()
     if not self.discordOn then return end
     local dcfg = self.cfg.discord or {}
     while #self.discordQueue > 0 do
-      local text = table.remove(self.discordQueue, 1)
-      local ok, err = self.dc:post(text)
+      local item = table.remove(self.discordQueue, 1)
+      local ok, err
+      if item.embed then ok, err = self.dc:postEmbed(item.embed) else ok, err = self.dc:post(item.text) end
       if not ok then self:warn("discord post failed: %s", tostring(err)) break end
     end
+    if self.statusDirty then self:refreshStatusCard() end
     if self.dc:canRead() and util.now() - self.lastPoll > (dcfg.pollInterval or 5) then
       self.lastPoll = util.now()
       local msgs, err = self.dc:poll()
@@ -945,10 +1004,10 @@ function controller:new(cfg, logger)
       end
       if self.dc.lastId ~= self.S.discordLastId then self.S.discordLastId = self.dc.lastId; self:saveState() end
     end
-    local interval = dcfg.statusInterval or 0
-    if interval > 0 and self.dc:canRead() and util.now() - self.lastStatusPost > interval then
+    local interval = tonumber(dcfg.statusInterval) or 0
+    if interval > 0 and util.now() - self.lastStatusPost > interval then
       self.lastStatusPost = util.now()
-      self.statusMsgId = self.dc:edit(self.statusMsgId, "```\n" .. self:fmtStatus() .. "\n```") or self.statusMsgId
+      self:refreshStatusCard()
     end
   end
 

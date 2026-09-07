@@ -36,15 +36,18 @@ me.add({ name = "Forestry:honeyDrop", label = "Honey Drop", size = 200 })
 me.add({ name = "gregtech:apiaryUpgrade", label = "Industrial Apiary Heater Upgrade", size = 16 })
 me.patterns = { "Block of Copper" }
 
--- controller
+-- controller, with a fake internet card so the webhook path runs too
 env.side = "controller"
+env.enableInternet()
+local WEBHOOK = "https://discord.com/api/webhooks/123456/abcDEF-token_x"
 local controllerLib = require("src.controller")
 local ctl = controllerLib:new({
   dataDir = dataDir, port = 7311, ae2 = {},
   cells = { cell1 = { housing = "gt_iapiary", mainInterface = "iface-main", beeInterface = "iface-bees", base = { temp = 0.8, hum = 0.4 } } },
   stations = {}, defaults = { keepDrones = 4, droneSupply = 16, maxGenerations = 400, warnAfter = 60 },
   honeyLabel = "Honey Drop", honeyStock = 64, chanceWeight = 0.1, foundationCostBase = 2, libraryScanInterval = 0,
-  effectBlacklist = {}, discord = { enabled = false }, conditionPatterns = {}, host = {},
+  effectBlacklist = {}, discord = { enabled = true, webhook = WEBHOOK, token = "", channel = "", statusCard = true },
+  conditionPatterns = {}, host = { url = "http://10.0.0.5:8080", pushInterval = 30 },
 }, env.logger)
 ctl:init()
 
@@ -110,9 +113,41 @@ end)
 T.run("integration: status and settings commands", function()
   T.ok(ctl:command("status", "test"):match("requests:"), "status renders")
   T.ok(ctl:command("queue", "test"):match("queue empty"), "queue empty after completion")
-  T.ok(ctl:command("settings", "test"):match("discord:"), "settings show")
-  T.ok(ctl:command("settings test", "test"):match("no internet card"), "settings test reports missing internet card")
+  T.ok(ctl:command("settings", "test"):match("discord: enabled"), "settings show")
+  T.ok(ctl:command("settings test", "test"):match("webhook: webhook ok"), "settings test exercises the webhook")
   local v = ctl:getValues()
   T.eq(v.cellCount, 1, "gui values: one cell")
   T.ok(#v.queue >= 1 and #v.cells >= 1, "gui values: lists present")
+end)
+
+T.run("integration: webhook cards, status card, host push", function()
+  local posts, deletes, pushes, embeds = 0, 0, 0, {}
+  for _, r in ipairs(env.http) do
+    if r.url:find(WEBHOOK, 1, true) == 1 and r.method == "POST" then
+      posts = posts + 1
+      if r.body:find('"embeds"', 1, true) then embeds[#embeds + 1] = r.body end
+    elseif r.url:find("/webhooks/123456/abcDEF-token_x/messages/", 1, true) and r.method == "DELETE" then
+      deletes = deletes + 1
+    elseif r.url == "http://10.0.0.5:8080/status" and r.method == "POST" then
+      pushes = pushes + 1
+    end
+  end
+  T.ok(posts >= 4, "several webhook posts went out: " .. posts)
+  T.ok(#embeds >= 3, "events were sent as embeds: " .. #embeds)
+  local sawStart, sawDone, sawStatus = false, false, false
+  for _, b in ipairs(embeds) do
+    if b:find("started on cell1", 1, true) then sawStart = true end
+    if b:find(" done: ", 1, true) then sawDone = true end
+    if b:find("Auto Bees status", 1, true) then sawStatus = true end
+    T.ok(b:find('"username":"Auto Bees"', 1, true), "webhook posts carry the display name")
+  end
+  T.ok(sawStart and sawDone and sawStatus, "start, done and status cards present")
+  T.ok(deletes >= 1, "the status card was replaced (old one deleted): " .. deletes)
+  T.ok(pushes >= 1, "status pushed to the custom host: " .. pushes)
+  for _, r in ipairs(env.http) do
+    if r.url == "http://10.0.0.5:8080/status" then
+      T.ok(r.body:find('"cells"', 1, true) and r.body:find('"queue"', 1, true), "host payload has cells and queue")
+      break
+    end
+  end
 end)

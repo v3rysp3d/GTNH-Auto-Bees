@@ -70,15 +70,17 @@ local config = {
 
     effectBlacklist = {},      -- species names never bred at home, e.g. { ["Radioactive"] = true }
 
-    -- Discord commands (bot token + channel). Posting only works with a webhook too.
+    -- Discord. A webhook URL alone gives event cards and a live status card.
+    -- A bot token + channel id additionally accepts !commands from the channel.
     discord = {
       enabled = false,
-      token = "",              -- bot token
-      channel = "",            -- channel id
-      webhook = "",            -- optional webhook URL (posting only)
-      pollInterval = 5,        -- seconds between command polls
+      webhook = "",            -- webhook URL (the setup guide or `settings discord webhook <url>` fills this)
+      token = "",              -- bot token (optional, for commands)
+      channel = "",            -- channel id (optional, for commands)
+      pollInterval = 5,        -- seconds between command polls (bot mode)
       prefix = "!",
-      statusInterval = 0,      -- seconds between live status message updates, 0 = off
+      statusCard = true,       -- keep one status message that is replaced on job start/end
+      statusInterval = 0,      -- also refresh the status card every N seconds, 0 = only on events
     },
 
     -- Extra parsers if the survey reports UNPARSED condition strings

@@ -479,6 +479,25 @@ function fake.install(opts)
   function beekeeper.getBeeProgress() return 0 end
 
   ------------------------------------------------------------------
+  -- internet card (optional): records every request, answers 200
+  ------------------------------------------------------------------
+  env.http = {}
+  local internet = { type = "internet", address = "internet-0" }
+  function internet.isHttpEnabled() return true end
+  function internet.request(url, body, headers, method)
+    local entry = { url = url, body = body, headers = headers, method = method or (body and "POST" or "GET") }
+    env.http[#env.http + 1] = entry
+    local reply = (env.httpReply and env.httpReply(entry)) or '{"id":"' .. tostring(#env.http) .. '"}'
+    local served = false
+    return {
+      finishConnect = function() return true end,
+      read = function() if served then return nil end served = true return reply end,
+      response = function() return 200, "OK", {} end,
+      close = function() end,
+    }
+  end
+
+  ------------------------------------------------------------------
   -- component registry
   ------------------------------------------------------------------
   local registry = {
@@ -532,6 +551,9 @@ function fake.install(opts)
   end })
   package.loaded["component"] = componentLib
   env.component = componentLib
+  function env.enableInternet()
+    table.insert(registry.controller, { addr = internet.address, type = "internet", proxy = internet })
+  end
 
   ------------------------------------------------------------------
   -- logger stand-in (same interface as lib.logger-lib)

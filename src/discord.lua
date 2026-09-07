@@ -1,9 +1,10 @@
 -- Discord bridge over the internet card.
 --
--- Outbound: bot token (POST /channels/{id}/messages) or a webhook URL.
--- Inbound : polling GET /channels/{id}/messages?after=<lastId> with the bot token.
--- Java's HttpURLConnection cannot send PATCH, so "edit" falls back to
--- delete + post when PATCH is rejected.
+-- Webhook mode (a URL is all you need): rich embeds for events, a status
+-- card that is refreshed by delete + repost, needs lists.
+-- Bot mode (token + channel id): the same, plus commands polled from the
+-- channel with GET /channels/{id}/messages?after=<lastId>.
+-- Java's HttpURLConnection cannot send PATCH, so edits are delete + post.
 local json = require("src.json")
 local http = require("src.http")
 
@@ -12,17 +13,31 @@ discord.__index = discord
 
 discord.API = "https://discord.com/api/v10"
 discord.userAgent = "DiscordBot (https://github.com/v3rysp3d/GTNH-Auto-Bees, 1.0)"
+discord.username = "Auto Bees"
+
+discord.colors = {
+  info = 0x3498DB, start = 0x3498DB, phase = 0xF1C40F, done = 0x2ECC71,
+  failed = 0xE74C3C, warn = 0xE67E22, status = 0x95A5A6, needs = 0xE67E22,
+}
 
 ---@param internet table|nil  internet card proxy
 ---@param cfg table  { token, channel, webhook, pollLimit, lastId }
 function discord.new(internet, cfg)
   cfg = cfg or {}
-  return setmetatable({
+  local self = setmetatable({
     internet = internet,
     token = cfg.token, channel = cfg.channel, webhook = cfg.webhook,
     pollLimit = cfg.pollLimit or 20,
     lastId = cfg.lastId,
   }, discord)
+  self.webhookId, self.webhookToken = discord.webhookParts(cfg.webhook)
+  return self
+end
+
+---Split a webhook URL into id and token (nil, nil when it is not one).
+function discord.webhookParts(url)
+  if type(url) ~= "string" then return nil, nil end
+  return url:match("/webhooks/(%d+)/([%w%-%_%.]+)")
 end
 
 function discord:enabled()
@@ -55,42 +70,78 @@ function discord.chunk(text, limit)
   return out
 end
 
----Post a message. Returns the message id (bot) or true, or nil, err.
+---Build an embed. fields = { {name, value[, inline]} ... }
+function discord.embed(kind, title, description, fields)
+  local e = {
+    title = title and tostring(title):sub(1, 250) or nil,
+    description = description and tostring(description):sub(1, 4000) or nil,
+    color = discord.colors[kind] or discord.colors.info,
+    footer = { text = "GTNH Auto Bees" },
+  }
+  if fields and #fields > 0 then
+    local list = json.array({})
+    for _, f in ipairs(fields) do
+      list[#list + 1] = { name = tostring(f[1]):sub(1, 250), value = tostring(f[2] == nil and "-" or f[2]):sub(1, 1000), inline = f[3] ~= false }
+    end
+    e.fields = list
+  end
+  return e
+end
+
+---Send a message payload (table). Returns message id, or true, or nil, err.
+function discord:send(payload)
+  if not self:enabled() then return nil, "discord disabled" end
+  payload.allowed_mentions = { parse = json.array({}) }
+  local code, resp
+  if self.token and self.channel then
+    code, resp = self:http("POST", discord.API .. "/channels/" .. self.channel .. "/messages", json.encode(payload))
+  else
+    payload.username = discord.username
+    code, resp = self:http("POST", self.webhook .. "?wait=true", json.encode(payload))
+  end
+  if not code then return nil, resp end
+  if code < 200 or code >= 300 then return nil, "http " .. code .. ": " .. tostring(resp):sub(1, 200) end
+  local data = json.decode(resp)
+  if type(data) == "table" and data.id then return data.id end
+  return true
+end
+
+---Post plain text (split into chunks). Returns the last message id or true.
 function discord:post(text)
   if not self:enabled() then return nil, "discord disabled" end
   local lastId
   for _, piece in ipairs(discord.chunk(text)) do
-    local body = json.encode({ content = piece, allowed_mentions = { parse = json.array({}) } })
-    local code, resp
-    if self.token and self.channel then
-      code, resp = self:http("POST", discord.API .. "/channels/" .. self.channel .. "/messages", body)
-    else
-      code, resp = self:http("POST", self.webhook .. "?wait=true", body)
-    end
-    if not code then return nil, resp end
-    if code < 200 or code >= 300 then return nil, "http " .. code .. ": " .. tostring(resp):sub(1, 200) end
-    local data = json.decode(resp)
-    if type(data) == "table" and data.id then lastId = data.id end
+    local id, err = self:send({ content = piece })
+    if not id then return nil, err end
+    lastId = id
   end
   return lastId or true
 end
 
-function discord:delete(messageId)
-  if not self:canRead() then return false end
-  local code = self:http("DELETE", discord.API .. "/channels/" .. self.channel .. "/messages/" .. messageId)
+---Post one embed (optionally with a text line above it).
+function discord:postEmbed(embed, content)
+  return self:send({ content = content, embeds = json.array({ embed }) })
+end
+
+---Delete a message we posted (bot or webhook).
+function discord:deleteMessage(messageId)
+  if not messageId or messageId == true then return false end
+  local url
+  if self.token and self.channel then
+    url = discord.API .. "/channels/" .. self.channel .. "/messages/" .. messageId
+  elseif self.webhookId then
+    url = discord.API .. "/webhooks/" .. self.webhookId .. "/" .. self.webhookToken .. "/messages/" .. messageId
+  else
+    return false
+  end
+  local code = self:http("DELETE", url)
   return code ~= nil and code >= 200 and code < 300
 end
 
----Edit a message in place; falls back to delete + post. Returns the (possibly new) id.
-function discord:edit(messageId, text)
-  if not self:canRead() then return nil, "edit needs a bot token" end
-  if messageId then
-    local body = json.encode({ content = text:sub(1, 1990) })
-    local code = self:http("PATCH", discord.API .. "/channels/" .. self.channel .. "/messages/" .. messageId, body)
-    if code and code >= 200 and code < 300 then return messageId end
-    self:delete(messageId)
-  end
-  return self:post(text)
+---Replace a message: delete the old one, post the new payload. Returns the new id.
+function discord:replace(messageId, payload)
+  if messageId then self:deleteMessage(messageId) end
+  return self:send(payload)
 end
 
 ---Fetch new messages since the last poll, oldest first: { id, author, content, bot }.
