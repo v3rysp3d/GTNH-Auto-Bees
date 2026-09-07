@@ -7,3 +7,4 @@ luavenv/
 settings.dat
 logs.log
 test/tmp/
+tools/cache/
