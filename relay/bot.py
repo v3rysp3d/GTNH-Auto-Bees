@@ -1,27 +1,23 @@
-"""Auto Bees Discord relay: buttons and slash commands for the controller.
+"""Auto Bees Discord bot (the relay).
 
-Runs on a machine of yours (the "custom host"). It keeps one main card with
-buttons in your channel, queues every click or slash command, and the
-OpenComputers controller picks them up over plain HTTP:
+Runs on a machine of yours. It keeps one main card with buttons in your
+channel, queues every click or slash command, and the OpenComputers
+controller picks them up over plain HTTP:
 
     GET  /commands  -> {"commands": [{"id": "...", "line": "find naqua", "user": "name"}]}
     POST /result    <- {"id": "...", "content": "...", "embeds": [...]}   (Discord message JSON)
     POST /status    <- the controller's status snapshot (drawn on the main card)
     GET  /          -> health check
 
-Setup
-    pip install -U discord.py aiohttp
-    set DISCORD_TOKEN=<bot token>  DISCORD_CHANNEL=<channel id>  [RELAY_PORT=8080] [RELAY_SECRET=<shared secret>]
-    python relay/bot.py
-
-Discord side: in the developer portal open your application, add a Bot, copy
-its token, and invite it with the `bot` and `applications.commands` scopes
-and the Send Messages permission. Then on the controller:
-    settings host http://<your ip>:8080
+Configuration comes from environment variables or a `.env` file next to
+this script (see .env.example): DISCORD_TOKEN, DISCORD_CHANNEL, RELAY_PORT,
+RELAY_SECRET. See README.md in this folder for the Discord portal steps.
 """
 import asyncio
 import json
 import os
+import re
+import sys
 import time
 import uuid
 
@@ -29,12 +25,30 @@ import discord
 from aiohttp import web
 from discord import app_commands
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_dotenv(path):
+    """Tiny .env reader: KEY=value lines, no dependency."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_dotenv(os.path.join(HERE, ".env"))
+
 TOKEN = os.environ.get("DISCORD_TOKEN", "")
 CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL", "0") or 0)
 PORT = int(os.environ.get("RELAY_PORT", "8080"))
 SECRET = os.environ.get("RELAY_SECRET", "")
-STATE_FILE = os.environ.get("RELAY_STATE", "relay_state.json")
-RESULT_TIMEOUT = 45  # seconds a button waits for the controller
+STATE_FILE = os.environ.get("RELAY_STATE", os.path.join(HERE, "relay_state.json"))
+RESULT_TIMEOUT = 45  # seconds a click waits for the controller
 
 COLOR_STATUS = 0x95A5A6
 
@@ -43,7 +57,7 @@ COLOR_STATUS = 0x95A5A6
 # ---------------------------------------------------------------------------
 pending = []            # commands the controller has not fetched yet
 waiting = {}            # command id -> asyncio.Future for the result
-status = {"time": 0}    # last status snapshot from the controller
+status = {}             # last status snapshot from the controller
 status_received = 0.0
 state = {"card_message": None}
 
@@ -52,7 +66,7 @@ def load_state():
     try:
         with open(STATE_FILE, encoding="utf-8") as f:
             state.update(json.load(f))
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         pass
 
 
@@ -64,7 +78,7 @@ def save_state():
 def queue_command(line, user):
     cid = uuid.uuid4().hex[:12]
     pending.append({"id": cid, "line": line, "user": user, "at": time.time()})
-    fut = asyncio.get_event_loop().create_future()
+    fut = asyncio.get_running_loop().create_future()
     waiting[cid] = fut
     return cid, fut
 
@@ -80,6 +94,13 @@ def payload_to_message(payload):
     if not kwargs:
         kwargs["content"] = "(empty reply)"
     return kwargs
+
+
+def icon_url(uid):
+    base = status.get("imageBase")
+    if not base or not uid:
+        return None
+    return base + re.sub(r"[^A-Za-z0-9]", "_", uid) + ".png"
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +120,8 @@ async def run_and_reply(interaction: discord.Interaction, line: str):
     except asyncio.TimeoutError:
         waiting.pop(cid, None)
         pending[:] = [c for c in pending if c["id"] != cid]
-        await interaction.followup.send("The controller did not answer within %d s. Is `main` running and the host link set?" % RESULT_TIMEOUT)
+        await interaction.followup.send(
+            "The controller did not answer within %d s. Is `main` running on it, and is `settings host` pointing here?" % RESULT_TIMEOUT)
         return
     await interaction.followup.send(**payload_to_message(payload))
 
@@ -184,22 +206,26 @@ class MainCard(discord.ui.View):
 
 def status_embed():
     e = discord.Embed(title="Auto Bees", color=COLOR_STATUS)
-    age = time.time() - status_received if status_received else None
-    if age is None:
-        e.description = "Waiting for the controller. On it: `settings host http://<this machine>:%d`" % PORT
+    if not status_received:
+        e.description = "Waiting for the controller. On it, type: `settings host http://<this machine>:%d`" % PORT
         return e
-    fresh = age < 120
-    e.description = ("Live" if fresh else "Stale, last update %d min ago" % (age // 60))
+    age = time.time() - status_received
+    e.description = "Live" if age < 120 else "Stale, last update %d min ago" % (age // 60)
+    thumb = None
     for name, c in sorted((status.get("cells") or {}).items()):
         if c.get("job"):
             value = "%s -> %s\ngen %s, %s" % (c.get("job"), c.get("target"), c.get("generation", 0), c.get("phase", "-"))
+            thumb = thumb or icon_url(c.get("targetUid"))
         else:
             value = str(c.get("status", "?"))
-        e.add_field(name=name, value=value, inline=True)
+        e.add_field(name=name, value=value[:1000], inline=True)
     queue = status.get("queue") or []
-    e.add_field(name="Queue", value=("\n".join("%s %s (%s)" % (q.get("id"), q.get("target"), q.get("status")) for q in queue[:8]) or "empty"), inline=False)
+    lines = ["%s %s (%s)" % (q.get("id"), q.get("target"), q.get("status")) for q in queue[:8]]
+    e.add_field(name="Queue", value=("\n".join(lines) or "empty")[:1000], inline=False)
     e.add_field(name="Library", value="%s species, %s princesses" % (status.get("librarySpecies", 0), status.get("princesses", 0)), inline=True)
-    e.set_footer(text="GTNH Auto Bees relay")
+    if thumb:
+        e.set_thumbnail(url=thumb)
+    e.set_footer(text="GTNH Auto Bees")
     return e
 
 
@@ -210,7 +236,7 @@ async def ensure_card():
     if state.get("card_message"):
         try:
             msg = await channel.fetch_message(int(state["card_message"]))
-        except discord.NotFound:
+        except (discord.NotFound, discord.Forbidden):
             msg = None
     if msg is None:
         msg = await channel.send(embed=status_embed(), view=view)
@@ -218,7 +244,7 @@ async def ensure_card():
         save_state()
     else:
         await msg.edit(embed=status_embed(), view=view)
-    return msg
+    return channel
 
 
 async def refresh_card_loop():
@@ -234,8 +260,17 @@ async def refresh_card_loop():
 @client.event
 async def on_ready():
     client.add_view(MainCard())
-    await tree.sync()
-    print("relay ready as", client.user, "in channel", CHANNEL_ID)
+    try:
+        channel = client.get_channel(CHANNEL_ID) or await client.fetch_channel(CHANNEL_ID)
+        guild = getattr(channel, "guild", None)
+        if guild is not None:
+            tree.copy_global_to(guild=guild)
+            await tree.sync(guild=guild)   # guild sync shows the /bee command immediately
+        else:
+            await tree.sync()
+    except Exception as exc:  # noqa: BLE001
+        print("slash command sync failed:", exc)
+    print("relay ready as", client.user, "watching channel", CHANNEL_ID)
 
 
 @tree.command(name="bee", description="Run an Auto Bees command (find, plan, needs, breed, status, queue, library, cancel ...)")
@@ -254,20 +289,19 @@ def authorized(request):
 async def http_commands(request):
     if not authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
-    out, keep = [], []
     now = time.time()
-    for c in pending:
-        if now - c["at"] > RESULT_TIMEOUT:
-            continue  # the interaction has already timed out
-        out.append({"id": c["id"], "line": c["line"], "user": c["user"]})
-    pending[:] = keep
+    out = [{"id": c["id"], "line": c["line"], "user": c["user"]} for c in pending if now - c["at"] <= RESULT_TIMEOUT]
+    pending.clear()
     return web.json_response({"commands": out})
 
 
 async def http_result(request):
     if not authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "reason": "bad json"}, status=400)
     fut = waiting.pop(str(payload.get("id")), None)
     if fut and not fut.done():
         fut.set_result(payload)
@@ -279,21 +313,38 @@ async def http_status(request):
     global status_received
     if not authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        data = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "reason": "bad json"}, status=400)
     status.clear()
-    status.update(await request.json())
+    status.update(data)
     status_received = time.time()
     return web.json_response({"ok": True})
 
 
 async def http_root(_request):
-    return web.json_response({"service": "auto-bees-relay", "pending": len(pending), "statusAge": time.time() - status_received if status_received else None})
+    return web.json_response({
+        "service": "auto-bees-relay",
+        "pending": len(pending),
+        "statusAge": (time.time() - status_received) if status_received else None,
+    })
+
+
+def make_app():
+    app = web.Application()
+    app.add_routes([
+        web.get("/", http_root),
+        web.get("/commands", http_commands),
+        web.post("/result", http_result),
+        web.post("/status", http_status),
+    ])
+    return app
 
 
 async def main():
     load_state()
-    app = web.Application()
-    app.add_routes([web.get("/", http_root), web.get("/commands", http_commands), web.post("/result", http_result), web.post("/status", http_status)])
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(make_app())
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
     print("http listening on port", PORT)
@@ -303,5 +354,5 @@ async def main():
 
 if __name__ == "__main__":
     if not TOKEN or not CHANNEL_ID:
-        raise SystemExit("set DISCORD_TOKEN and DISCORD_CHANNEL")
+        sys.exit("set DISCORD_TOKEN and DISCORD_CHANNEL (environment or relay/.env)")
     asyncio.run(main())

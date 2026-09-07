@@ -8,3 +8,6 @@ settings.dat
 logs.log
 test/tmp/
 tools/cache/
+relay/.env
+relay/relay_state.json
+relay/.venv/
