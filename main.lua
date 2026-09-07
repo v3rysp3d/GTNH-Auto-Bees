@@ -2,10 +2,17 @@ local component = require("component")
 local keyboard = require("keyboard")
 local event = require("event")
 
+-- OpenOS keeps required modules cached until reboot; after an update the
+-- old copies would otherwise stay in memory
+for name in pairs(package.loaded) do
+  if type(name) == "string" and (name:match("^src%.") or name:match("^lib%.") or name == "config" or name == "version") then
+    package.loaded[name] = nil
+  end
+end
+
 local util = require("src.util")
 local settingsLib = require("src.settings")
 
-package.loaded.config = nil
 local config = require("config")
 local version = require("version")
 
