@@ -7,8 +7,9 @@
 -- Both levels +1 and -1 must be free air so the robot can step up and down.
 -- A charger next to level 0 keeps the robot powered.
 --
--- Robot parts: Beekeeper Upgrade, Inventory Controller Upgrade, wireless
--- network card, a pick in the tool slot. Slot 1 = honey drops, slot 2 = scratch.
+-- Robot parts: Beekeeper Upgrade, Inventory Controller Upgrade, Inventory
+-- Upgrades, wireless network card, a pick in the tool slot.
+-- Slot 1 = honey drops, slot 2 = scratch.
 --
 -- usage: beecell            (config in /etc/beecell.cfg, see etc/beecell.cfg)
 local component = require("component")

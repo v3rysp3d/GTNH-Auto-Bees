@@ -95,8 +95,8 @@ princess.
 - Both ME Interfaces are touched by an **Adapter with a Database upgrade** so the controller can stock them.
 - Industrial Apiary settings: **Auto-Queen on**, **no Automation upgrade**, item output facing the chest on top.
   Recommended upgrades: one speed, four lifespan, light, sky, seal. Climate upgrades are added per job.
-- Robot parts: Beekeeper Upgrade, Inventory Controller Upgrade, wireless network card, a pick in the tool slot.
-  Slot 1 holds honey drops, slot 2 is scratch, the rest is working space.
+- Robot parts: Beekeeper Upgrade, Inventory Controller Upgrade, two Inventory Upgrades, wireless network card, a
+  pick in the tool slot. Slot 1 holds honey drops, slot 2 is scratch, the rest is working space.
 - Somewhere on the network a cheap **Bee House with an Adapter** provides the mutation data. The GT machine does not
   expose it.
 - Plant the flower types your target species want inside the housing's territory.
@@ -105,6 +105,8 @@ Other housings (Apiary, Magic Apiary, Alveary) are described as drivers in `lib/
 Apiary is the one this has been designed around because its built-in acceleration makes a generation take seconds.
 
 ## Install
+
+Full parts list, layout and step-by-step setup: **[SETUP.md](SETUP.md)**.
 
 On the controller computer and on each robot (internet card, or copy the repo onto a floppy):
 
