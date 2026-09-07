@@ -437,7 +437,12 @@ function cell:new(cfg, logger)
 
   function api.setFoundation(block)
     if not hs.caps.foundation then return true end
-    if state.foundation == block then return true end
+    if state.foundation == block then
+      -- remembered as placed: trust it only while a block is physically there
+      goTo(-1)
+      if robot.detect(sides.front) then return true end
+      state.foundation = nil
+    end
     local slot = findSlot(function(st) return st.label == block end)
     if not slot then
       local err

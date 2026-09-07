@@ -14,8 +14,9 @@ local util = require("src.util")
 local graph = require("src.graph")
 local genome = require("src.genome")
 
--- data the survey would have produced
+-- data the survey would have produced (start from a clean slate every run)
 local dataDir = TESTS .. "/tmp"
+for _, f in ipairs({ "/cell.state", "/state.dat", "/catalog.dat", "/graph.dat" }) do os.remove(dataDir .. f) end
 util.saveTable(dataDir .. "/graph.dat", graph.fromBreedingData(sim.breedingData(), {
   { name = "Common", uid = "forestry.speciesCommon" }, { name = "Cultivated", uid = "forestry.speciesCultivated" } }):toTable())
 util.writeFile(dataDir .. "/catalog.dat", "{byId={},nextId={}}")
