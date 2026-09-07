@@ -38,8 +38,19 @@ end
 
 local function stripDot(s) return (s:gsub("%.$", "")) end
 
---- Parse one condition string. Always returns a table with .kind and .raw.
+--- When false, parsed conditions keep the original text only for kinds the
+--- parser did not understand, which saves memory on large graphs.
+conditions.keepRaw = false
+
+--- Parse one condition string. Always returns a table with .kind; .raw is
+--- kept for unknown kinds, and for all kinds while conditions.keepRaw is true.
 function conditions.parse(raw)
+  local parsed = conditions.parseInner(raw)
+  if not conditions.keepRaw and parsed.kind ~= "unknown" then parsed.raw = nil end
+  return parsed
+end
+
+function conditions.parseInner(raw)
   local s = util.trim(raw or "")
   local c = { raw = raw }
 
@@ -151,6 +162,30 @@ function conditions.describe(c)
   if c.kind == "date" then return "date:" .. c.start .. "-" .. c.stop end
   if c.kind == "gtmachine" then return "gtmachine" end
   return "?:" .. tostring(c.raw)
+end
+
+--- The original condition text (rebuilt from the parsed form when it was dropped).
+function conditions.text(c)
+  if c.raw then return c.raw end
+  if c.kind == "foundation" then return "Requires " .. c.block .. " as a foundation." end
+  if c.kind == "biome" then
+    if #c.types == 1 then return "Occurs within a " .. c.types[1] .. " biome." end
+    return "Occurs within biomes like: " .. table.concat(c.types, ", ")
+  end
+  if c.kind == "temperature" then
+    if c.min == c.max then return "Requires " .. c.min .. " temperature." end
+    return "Requires temperature between " .. c.min .. " and " .. c.max .. "."
+  end
+  if c.kind == "humidity" then
+    if c.min == c.max then return "Requires " .. c.min .. " humidity." end
+    return "Requires humidity between " .. c.min .. " and " .. c.max .. "."
+  end
+  if c.kind == "daytime" then return c.day and "During the day." or "During the night." end
+  if c.kind == "date" then return "Occurs between " .. c.start .. " and " .. c.stop .. "." end
+  if c.kind == "gtmachine" then return "Needs a running GT Machine below to breed" end
+  if c.kind == "dimension" then return "mutation.condition.dim " .. tostring(c.name) end
+  if c.kind == "biomeId" then return "mutation.condition.biomeid " .. tostring(c.name) end
+  return ""
 end
 
 function conditions.describeAll(list)

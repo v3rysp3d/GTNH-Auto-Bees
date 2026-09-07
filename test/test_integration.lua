@@ -17,7 +17,7 @@ local genome = require("src.genome")
 -- data the survey would have produced (start from a clean slate every run)
 local dataDir = TESTS .. "/tmp"
 for _, f in ipairs({ "/cell.state", "/state.dat", "/catalog.dat", "/graph.dat" }) do os.remove(dataDir .. f) end
-util.saveTable(dataDir .. "/graph.dat", graph.fromParents(sim.parentsData()):toTable())
+assert(graph.fromParents(sim.parentsData()):save(dataDir .. "/graph.dat"))
 local U = sim.uid
 util.writeFile(dataDir .. "/catalog.dat", "{byId={},nextId={}}")
 util.writeFile(dataDir .. "/state.dat", "{requests={},jobs={},nextId=1}")

@@ -165,6 +165,22 @@ function util.serialize(v)
   return table.concat(out)
 end
 
+--- Serialize straight into a writer function, never holding the whole text
+--- in memory (OpenComputers computers have little RAM).
+function util.serializeTo(write, v)
+  local buf, size = {}, 0
+  local sink = setmetatable({}, { __newindex = function(_, _, piece)
+    buf[#buf + 1] = piece
+    size = size + #piece
+    if size > 4096 then
+      write(table.concat(buf))
+      buf, size = {}, 0
+    end
+  end })
+  serializeValue(v, sink, 0)
+  if #buf > 0 then write(table.concat(buf)) end
+end
+
 function util.unserialize(s)
   if type(s) ~= "string" then return nil, "not a string" end
   local fn, err = load("return " .. s, "=unserialize", "t", { math = { huge = math.huge } })
@@ -215,7 +231,12 @@ function util.loadTable(path, default)
 end
 
 function util.saveTable(path, t)
-  return util.writeFile(path, util.serialize(t))
+  local f, err = io.open(path, "wb")
+  if not f then return nil, err end
+  local ok, serr = pcall(util.serializeTo, function(s) f:write(s) end, t)
+  f:close()
+  if not ok then return nil, serr end
+  return true
 end
 
 ------------------------------------------------------------------------

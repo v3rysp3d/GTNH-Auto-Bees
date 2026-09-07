@@ -43,7 +43,6 @@ function graph:addMutation(m)
   local entry = {
     a = m.a, b = m.b, result = m.result,
     chance = tonumber(m.chance) or 0,
-    raw = m.raw or {},
     conds = m.conds or conditions.parseAll(m.raw or {}),
   }
   self.mutations[idx] = entry
@@ -105,10 +104,16 @@ function graph.fromBreedingData(breedingData, speciesList)
   return g
 end
 
+local function rawOf(m)
+  local raw = {}
+  for _, c in ipairs(m.conds or {}) do raw[#raw + 1] = conditions.text(c) end
+  return raw
+end
+
 function graph:toTable()
   local muts = {}
   for i, m in ipairs(self.mutations) do
-    muts[i] = { a = m.a, b = m.b, result = m.result, chance = m.chance, raw = m.raw }
+    muts[i] = { a = m.a, b = m.b, result = m.result, chance = m.chance, raw = rawOf(m) }
   end
   return { mutations = muts, species = self.species, keyed = "uid" }
 end
@@ -117,6 +122,63 @@ function graph.fromTable(t)
   local g = graph.new()
   for uid, e in pairs(t.species or {}) do g:addSpecies(e.uid or uid, e.name) end
   for _, m in ipairs(t.mutations or {}) do g:addMutation(m) end
+  return g
+end
+
+------------------------------------------------------------------------
+-- streamed file format: one line per species / mutation, tab separated,
+-- written and read piece by piece so a big graph never sits twice in RAM.
+--   S <tab> uid <tab> name
+--   M <tab> a <tab> b <tab> result <tab> chance <tab> condition <tab> condition ...
+------------------------------------------------------------------------
+graph.FILE_HEADER = "#autobees-graph 1"
+
+local function untab(s) return (tostring(s or ""):gsub("[\t\r\n]", " ")) end
+
+function graph:save(path)
+  local f, err = io.open(path, "wb")
+  if not f then return nil, err end
+  f:write(graph.FILE_HEADER, "\n")
+  for _, e in ipairs(self:speciesList()) do
+    f:write("S\t", untab(e.uid), "\t", untab(e.name), "\n")
+  end
+  for _, m in ipairs(self.mutations) do
+    f:write("M\t", untab(m.a), "\t", untab(m.b), "\t", untab(m.result), "\t", tostring(m.chance))
+    for _, c in ipairs(m.conds or {}) do f:write("\t", untab(conditions.text(c))) end
+    f:write("\n")
+  end
+  f:close()
+  return true
+end
+
+function graph.load(path)
+  local f = io.open(path, "rb")
+  if not f then return nil, "cannot open " .. tostring(path) end
+  local header = f:read("*l")
+  f:close()
+  if header == nil then return nil, "empty file" end
+  if header:sub(1, 1) == "{" then
+    -- older serialized-table format
+    local t = util.loadTable(path)
+    if not t then return nil, "unreadable graph" end
+    return graph.fromTable(t)
+  end
+  if header:sub(1, #"#autobees-graph") ~= "#autobees-graph" then return nil, "not a graph file" end
+  local g = graph.new()
+  for line in io.lines(path) do
+    local kind = line:sub(1, 1)
+    if kind == "S" then
+      local uid, name = line:match("^S\t([^\t]*)\t(.*)$")
+      if uid then g:addSpecies(uid, name) end
+    elseif kind == "M" then
+      local fields = util.split(line, "\t")
+      if #fields >= 5 then
+        local raw = {}
+        for i = 6, #fields do raw[#raw + 1] = fields[i] end
+        g:addMutation({ a = fields[2], b = fields[3], result = fields[4], chance = tonumber(fields[5]), raw = raw })
+      end
+    end
+  end
   return g
 end
 

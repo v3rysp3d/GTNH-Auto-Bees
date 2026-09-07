@@ -99,14 +99,23 @@ function controller:new(cfg, logger)
       conditions.addPattern(p.pattern, function(m) return { kind = p.kind, name = m, block = m } end)
     end
 
-    if not util.exists(cfg.dataDir .. "/graph.dat") then
+    local graphPath = cfg.dataDir .. "/graph.dat"
+    local g, gerr
+    if util.exists(graphPath) then
+      g, gerr = graph.load(graphPath)
+      if not g then
+        self:warn("graph.dat is unreadable (%s), running the survey again", tostring(gerr))
+        os.remove(graphPath)
+      end
+    end
+    if not g then
       self:log("no graph.dat yet, running the survey")
       local ok, err = survey.run(cfg.dataDir, function(l) self:log("%s", l) end)
       if not ok then error("survey failed: " .. tostring(err)) end
+      g, gerr = graph.load(graphPath)
+      if not g then error("cannot load " .. graphPath .. ": " .. tostring(gerr)) end
     end
-    local graphTable = util.loadTable(cfg.dataDir .. "/graph.dat")
-    if not graphTable then error("cannot load " .. cfg.dataDir .. "/graph.dat") end
-    self.graph = graph.fromTable(graphTable)
+    self.graph = g
     self.cat = catalog.new(cfg.dataDir .. "/catalog.dat")
     self.cat:load()
     self.cat:assign(self.graph:speciesList())
@@ -933,7 +942,7 @@ function controller:new(cfg, logger)
       local lines = {}
       local ok, res = survey.run(self.cfg.dataDir, function(l) lines[#lines + 1] = l end, { verbose = cmd.opts.all })
       if ok then
-        self.graph = graph.fromTable(util.loadTable(self.cfg.dataDir .. "/graph.dat"))
+        self.graph = graph.load(self.cfg.dataDir .. "/graph.dat") or self.graph
         self.cat:load()
       else
         lines[#lines + 1] = "survey failed: " .. tostring(res)

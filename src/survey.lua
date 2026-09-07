@@ -45,20 +45,24 @@ local function toArray(t)
   return out
 end
 
---- Build the uid-keyed graph through getBeeParents. Returns graph or nil.
+--- Build the uid-keyed graph through getBeeParents, one species at a time
+--- so the raw results never pile up in memory. Returns graph or nil.
 local function graphFromParents(bh, speciesList, say)
-  local entries, failures = {}, 0
+  local g = graph.new()
+  local added, failures = 0, 0
   for _, sp in ipairs(speciesList) do
     if type(sp) == "table" and sp.uid then
       local ok, parents = pcall(bh.getBeeParents, sp.uid)
       if ok and type(parents) == "table" then
         for _, m in pairs(parents) do
           if type(m) == "table" and type(m.allele1) == "table" and type(m.allele2) == "table" then
-            entries[#entries + 1] = {
-              result = { name = sp.name, uid = sp.uid },
-              allele1 = m.allele1, allele2 = m.allele2,
-              chance = m.chance, specialConditions = toArray(m.specialConditions),
-            }
+            g:addMutation({
+              a = m.allele1.uid or m.allele1.name, aName = m.allele1.name,
+              b = m.allele2.uid or m.allele2.name, bName = m.allele2.name,
+              result = sp.uid, resultName = sp.name,
+              chance = m.chance, raw = util.map(toArray(m.specialConditions), tostring),
+            })
+            added = added + 1
           end
         end
       else
@@ -66,9 +70,9 @@ local function graphFromParents(bh, speciesList, say)
       end
     end
   end
-  if #entries == 0 then return nil end
+  if added == 0 then return nil end
   if failures > 0 then say(string.format("getBeeParents failed for %d species", failures)) end
-  return graph.fromParents(entries)
+  return g
 end
 
 ---Run the survey.
@@ -90,6 +94,7 @@ function survey.run(dataDir, say, opts)
   end
   say(string.format("bee housing: %s (%s)", housingAddr:sub(1, 8), housingType))
   local bh = component.proxy(housingAddr)
+  conditions.keepRaw = true   -- the survey report and the saved file want the original strings
 
   local okSpecies, speciesList = pcall(bh.listAllSpecies)
   if not okSpecies or type(speciesList) ~= "table" then speciesList = {} end
@@ -107,7 +112,8 @@ function survey.run(dataDir, say, opts)
 
   local stats = g:stats()
   say(string.format("mutations %d, species %d, hive-only species %d", stats.mutations, stats.species, stats.baseSpecies))
-  util.saveTable(dataDir .. "/graph.dat", g:toTable())
+  local okSave, saveErr = g:save(dataDir .. "/graph.dat")
+  if not okSave then return false, "cannot write graph.dat: " .. tostring(saveErr) end
 
   local cat = catalog.new(dataDir .. "/catalog.dat")
   cat:load()
@@ -166,6 +172,7 @@ function survey.run(dataDir, say, opts)
     for i = 1, math.min(#actions, 10) do say("  " .. actions[i]) end
   end
 
+  conditions.keepRaw = false
   local function has(name) return component.list(name)() ~= nil end
   say(string.format("components: beekeeper=%s inventory_controller=%s modem=%s database=%s internet=%s",
     tostring(has("beekeeper")), tostring(has("inventory_controller")), tostring(has("modem")), tostring(has("database")), tostring(has("internet"))))

@@ -42,7 +42,10 @@ T.run("discord helpers", function()
 end)
 
 T.run("conditions", function()
-  T.eq(conditions.parse("Requires Block of Copper as a foundation."), { kind = "foundation", block = "Block of Copper", raw = "Requires Block of Copper as a foundation." }, "foundation")
+  T.eq(conditions.parse("Requires Block of Copper as a foundation."), { kind = "foundation", block = "Block of Copper" }, "foundation (raw dropped to save memory)")
+  conditions.keepRaw = true
+  T.eq(conditions.parse("Requires Block of Copper as a foundation.").raw, "Requires Block of Copper as a foundation.", "raw kept on request")
+  conditions.keepRaw = false
   T.eq(conditions.parse("Occurs within a Jungle biome.").types, { "Jungle" }, "biome single")
   T.eq(conditions.parse("Occurs within biomes like: Forest, Plains").types, { "Forest", "Plains" }, "biome list")
   T.eq(conditions.parse("Requires Hot temperature.").min, "Hot", "temp single")
@@ -160,6 +163,22 @@ T.run("graph plan", function()
       allele2 = { name = "Diamond", uid = "extrabees.species.diamond" }, chance = 5, specialConditions = {} },
   })
   T.eq(gp:nameOf("forestry.speciesForest"), "Forest", "names kept per uid")
+  -- streamed file round trip keeps species, mutations and conditions
+  local path = TESTS .. "/tmp/graph_roundtrip.dat"
+  T.ok(g:save(path), "graph saved")
+  local back = graph.load(path)
+  T.eq(back:stats().mutations, 8, "mutations reloaded")
+  T.eq(back:nameOf("Imperial"), "Imperial", "species reloaded")
+  local reloaded = back:plan("Imperial", { Forest = true, Meadows = true })
+  T.eq(reloaded.steps[5].conds[1].block, "Block of Gold", "condition reloaded from text")
+  T.eq(reloaded.steps[5].conds[1].raw, nil, "raw text dropped for known conditions")
+  local dim = graph.load(path):mutationsFor("Imperial", "Ender")[1]
+  T.eq(dim.conds[1].kind, "dimension", "dimension condition survives the round trip")
+  T.eq(conditions.text({ kind = "temperature", min = "Hot", max = "Hot" }), "Requires Hot temperature.", "condition text rebuilt")
+  -- streamed serializer matches the in-memory one
+  local pieces = {}
+  util.serializeTo(function(s) pieces[#pieces + 1] = s end, { a = { 1, 2 }, b = "x" })
+  T.eq(table.concat(pieces), util.serialize({ a = { 1, 2 }, b = "x" }), "serializeTo")
   T.eq(gp:stats().duplicates["Diamond"] ~= nil, true, "duplicate names detected")
   local pp = gp:plan("gregtech.bee.speciesDiamond", { ["forestry.speciesForest"] = true, ["forestry.speciesMeadows"] = true, ["extrabees.species.diamond"] = true })
   T.eq(util.map(pp.steps, function(s) return s.result end), { "forestry.speciesCommon", "gregtech.bee.speciesDiamond" }, "plan over uids")
