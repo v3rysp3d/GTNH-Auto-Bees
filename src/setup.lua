@@ -7,6 +7,7 @@ local term = require("term")
 local util = require("src.util")
 local settings = require("src.settings")
 local connect = require("src.connect")
+local survey = require("src.survey")
 
 local setup = {}
 
@@ -58,7 +59,8 @@ local function componentReport()
   line("ME network", meType ~= nil, meType and ("via " .. meType) or "adapter on an ME Interface/Controller")
   line("database upgrade", has("database"), "inside an Adapter next to each ME Interface")
   line("modem", has("modem"), "wireless card, or wired to the robots")
-  line("bee_housing", has("bee_housing"), "adapter on a Bee House (mutation data)")
+  local housingAddr, housingType = survey.findHousing(component)
+  line("bee housing", housingAddr ~= nil, housingAddr and ("seen as " .. tostring(housingType)) or "adapter on a Bee House (mutation data)")
   local inet = has("internet")
   local httpOk = false
   if inet then

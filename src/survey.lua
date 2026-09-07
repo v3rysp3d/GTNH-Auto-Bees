@@ -20,6 +20,25 @@ local housing = require("src.housing")
 
 local survey = {}
 
+--- Find the adapter-exposed Forestry housing. OpenComputers names it
+--- "bee_housing", unless another driver also matches the block; then it
+--- exposes a compound component named after the block
+--- ("tile_for_apiculture_0_name") that still carries the same methods.
+--- Returns address, componentType or nil.
+function survey.findHousing(component)
+  local direct = component.list("bee_housing")()
+  if direct then return direct, "bee_housing" end
+  for addr, ctype in component.list() do
+    local ok, methods = pcall(component.methods, addr)
+    if ok and type(methods) == "table" then
+      for k, v in pairs(methods) do
+        if k == "getBeeBreedingData" or v == "getBeeBreedingData" then return addr, ctype end
+      end
+    end
+  end
+  return nil
+end
+
 local function toArray(t)
   local out = {}
   for _, v in pairs(t or {}) do out[#out + 1] = v end
@@ -63,12 +82,13 @@ function survey.run(dataDir, say, opts)
   say = say or print
   util.mkdirs(dataDir)
 
-  local housingAddr = component.list("bee_housing")()
+  local housingAddr, housingType = survey.findHousing(component)
   if not housingAddr then
-    say("No 'bee_housing' component. Put an Adapter next to a Forestry Bee House and connect it.")
+    say("No Forestry bee housing found. Put an Adapter next to a Forestry Bee House and connect it.")
     say("(The GT Industrial Apiary does not expose it.)")
-    return false, "no bee_housing component: place a Forestry Bee House (or Apiary) with an Adapter touching it on the controller's cable; the GT Industrial Apiary only shows up as gt_machine"
+    return false, "no bee housing component: place a Forestry Bee House (or Apiary) with an Adapter touching it on the controller's cable; the GT Industrial Apiary only shows up as gt_machine"
   end
+  say(string.format("bee housing: %s (%s)", housingAddr:sub(1, 8), housingType))
   local bh = component.proxy(housingAddr)
 
   local okSpecies, speciesList = pcall(bh.listAllSpecies)
