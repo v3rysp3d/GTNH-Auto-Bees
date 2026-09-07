@@ -271,6 +271,8 @@ async def on_ready():
     except Exception as exc:  # noqa: BLE001
         print("slash command sync failed:", exc)
     print("relay ready as", client.user, "watching channel", CHANNEL_ID)
+    perms = discord.Permissions(view_channel=True, send_messages=True, embed_links=True, read_message_history=True)
+    print("invite link:", discord.utils.oauth_url(client.user.id, permissions=perms, scopes=("bot", "applications.commands")))
 
 
 @tree.command(name="bee", description="Run an Auto Bees command (find, plan, needs, breed, status, queue, library, cancel ...)")
