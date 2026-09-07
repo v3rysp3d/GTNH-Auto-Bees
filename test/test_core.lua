@@ -71,23 +71,34 @@ T.run("catalog", function()
     { name = "Zzz Unknown" }, -- no uid and no hint: base range
   })
   T.eq(n, 4, "assigned")
-  T.eq(c:idOf("Common"), 1001, "forestry first alphabetically")
-  T.eq(c:idOf("Forest"), 1002, "forestry second")
-  T.eq(c:idOf("Naquadah"), 4001, "gregtech range")
-  T.eq(c:idOf("Zzz Unknown"), 9001, "unknown range")
+  local function idOf(name) local e = c:uniqueByName(name) return e and e.id end
+  T.eq(idOf("Common"), 1001, "forestry first alphabetically")
+  T.eq(idOf("Forest"), 1002, "forestry second")
+  T.eq(idOf("Naquadah"), 4001, "gregtech range")
+  T.eq(idOf("Zzz Unknown"), 9001, "unknown range")
   c:assign({ { name = "Forest", uid = "forestry.speciesForest" }, { name = "Meadows", uid = "forestry.speciesMeadows" } })
-  T.eq(c:idOf("Forest"), 1002, "stable id")
-  T.eq(c:idOf("Meadows"), 1003, "appended")
-  -- hive-only species come without a uid from the game; the generated table fills it in
+  T.eq(idOf("Forest"), 1002, "stable id")
+  T.eq(idOf("Meadows"), 1003, "appended")
+  -- hive-only species come without a uid from name-only data; the generated table fills it in
   c:assign({ { name = "Tropical" } })
-  T.eq(c:byNameLookup("Tropical").uid, "forestry.speciesTropical", "uid hint applied")
-  T.ok(c:idOf("Tropical") >= 1000 and c:idOf("Tropical") < 2000, "hinted species lands in the Forestry range")
-  T.eq(catalog.iconFile("Forest"), "forestry_speciesForest.png", "icon file from hint")
-  T.eq(catalog.iconFile("Nope"), nil, "no icon for unknown species")
+  T.eq(c:uniqueByName("Tropical").uid, "forestry.speciesTropical", "uid hint applied")
+  T.ok(idOf("Tropical") >= 1000 and idOf("Tropical") < 2000, "hinted species lands in the Forestry range")
+  T.eq(catalog.iconFile("forestry.speciesForest"), "forestry_speciesForest.png", "icon file from uid")
+  T.eq(catalog.iconFile(nil), nil, "no icon without uid")
   T.eq(c:resolve("4001").name, "Naquadah", "resolve number")
   T.eq(c:resolve("naqua").name, "Naquadah", "resolve substring")
+  T.eq(c:resolve("forestry.speciesForest").id, 1002, "resolve uid")
   local e, err = c:resolve("o")
   T.ok(e == nil and err:match("ambiguous"), "ambiguous")
+  -- the same display name in two mods
+  c:assign({ { name = "Diamond", uid = "gregtech.bee.speciesDiamond" }, { name = "Diamond", uid = "extrabees.species.diamond" } })
+  T.eq(#c:byNameLookup("Diamond"), 2, "two Diamonds")
+  T.ok(c:label("gregtech.bee.speciesDiamond"):match("Diamond %(GregTech%)"), "shared name labelled with mod: " .. c:label("gregtech.bee.speciesDiamond"))
+  T.ok(c:label("extrabees.species.diamond"):match("Diamond %(Extra Bees%)"), "other mod labelled too")
+  T.ok(not c:label("forestry.speciesForest"):match("%("), "unique names stay plain")
+  local d, derr = c:resolve("Diamond")
+  T.ok(d == nil and derr:match("use the number"), "shared name must be picked by number")
+  T.eq(c:resolve(tostring(c:byUidLookup("extrabees.species.diamond").id)).uid, "extrabees.species.diamond", "number picks the right one")
 end)
 
 T.run("climate", function()
@@ -115,8 +126,11 @@ T.run("genome", function()
     inactive = { species = { name = "Forest" }, fertility = 3 },
   } }
   T.eq(genome.kind(drone), "drone", "kind")
-  T.eq(genome.isPure(drone, "Common"), false, "hybrid not pure")
+  T.eq(genome.active(drone), "forestry.speciesCommon", "active uid")
+  T.eq(genome.inactive(drone), "Forest", "inactive falls back to the name without a uid")
+  T.eq(genome.isPure(drone, "forestry.speciesCommon"), false, "hybrid not pure")
   T.eq(genome.hasSpecies(drone, "Forest"), true, "has inactive")
+  T.eq(genome.hasSpecies(raw or drone, "x", "Common"), false, "unanalyzed compare by name only when given")
   T.eq(genome.displaySpecies(drone), "Common", "display")
   local raw = { name = "Forestry:beePrincessGE", label = "Meadows Princess", size = 1, individual = { type = "bee", isAnalyzed = false, displayName = "Meadows" } }
   T.eq(genome.kind(raw), "princess", "princess kind")
@@ -136,8 +150,19 @@ T.run("graph plan", function()
     { allele1 = "Forest", allele2 = "Ender", result = "Shortcut", chance = 50, specialConditions = { "Requires Block of Unobtainium as a foundation." } },
     { allele1 = "Shortcut", allele2 = "Forest", result = "Imperial", chance = 50, specialConditions = {} },
   }
-  local g = graph.fromBreedingData(data, { { name = "Common", uid = "forestry.speciesCommon" } })
+  local g = graph.fromBreedingData(data, {})
   T.eq(g:stats().mutations, 8, "mutations loaded")
+  -- uid-keyed build from getBeeParents-shaped data
+  local gp = graph.fromParents({
+    { result = { name = "Common", uid = "forestry.speciesCommon" }, allele1 = { name = "Forest", uid = "forestry.speciesForest" },
+      allele2 = { name = "Meadows", uid = "forestry.speciesMeadows" }, chance = 15, specialConditions = {} },
+    { result = { name = "Diamond", uid = "gregtech.bee.speciesDiamond" }, allele1 = { name = "Common", uid = "forestry.speciesCommon" },
+      allele2 = { name = "Diamond", uid = "extrabees.species.diamond" }, chance = 5, specialConditions = {} },
+  })
+  T.eq(gp:nameOf("forestry.speciesForest"), "Forest", "names kept per uid")
+  T.eq(gp:stats().duplicates["Diamond"] ~= nil, true, "duplicate names detected")
+  local pp = gp:plan("gregtech.bee.speciesDiamond", { ["forestry.speciesForest"] = true, ["forestry.speciesMeadows"] = true, ["extrabees.species.diamond"] = true })
+  T.eq(util.map(pp.steps, function(s) return s.result end), { "forestry.speciesCommon", "gregtech.bee.speciesDiamond" }, "plan over uids")
   local plan = g:plan("Imperial", { Forest = true, Meadows = true })
   T.ok(plan ~= nil, "plan found")
   T.eq(util.map(plan.steps, function(s) return s.result end), { "Common", "Cultivated", "Noble", "Majestic", "Imperial" }, "ordered chain")

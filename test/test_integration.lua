@@ -17,8 +17,8 @@ local genome = require("src.genome")
 -- data the survey would have produced (start from a clean slate every run)
 local dataDir = TESTS .. "/tmp"
 for _, f in ipairs({ "/cell.state", "/state.dat", "/catalog.dat", "/graph.dat" }) do os.remove(dataDir .. f) end
-util.saveTable(dataDir .. "/graph.dat", graph.fromBreedingData(sim.breedingData(), {
-  { name = "Common", uid = "forestry.speciesCommon" }, { name = "Cultivated", uid = "forestry.speciesCultivated" } }):toTable())
+util.saveTable(dataDir .. "/graph.dat", graph.fromParents(sim.parentsData()):toTable())
+local U = sim.uid
 util.writeFile(dataDir .. "/catalog.dat", "{byId={},nextId={}}")
 util.writeFile(dataDir .. "/state.dat", "{requests={},jobs={},nextId=1}")
 
@@ -80,7 +80,8 @@ T.run("integration: breed Cultivated through Common with foundation + heater", f
   T.ok(req ~= nil, "request stored")
   local targets = {}
   for _, jid in ipairs(req.jobs) do targets[#targets + 1] = ctl.S.jobs[jid].target end
-  T.eq(targets, { "Common", "Cultivated" }, "two jobs in chain order")
+  T.eq(targets, { U("Common"), U("Cultivated") }, "two jobs in chain order, keyed by uid")
+  T.eq(ctl.S.jobs[req.jobs[1]].names[U("Forest")], "Forest", "jobs carry display names")
 
   local rounds = 0
   while req.status == "active" and rounds < 60 do
@@ -92,9 +93,10 @@ T.run("integration: breed Cultivated through Common with foundation + heater", f
   T.eq(req.status, "done", "request finished (status " .. tostring(req.status) .. " after " .. rounds .. " rounds)")
 
   local lib = ctl.library
-  T.ok(lib.Common and lib.Common.drones >= 4, "Common drones archived: " .. tostring(lib.Common and lib.Common.drones))
-  T.ok(lib.Cultivated and lib.Cultivated.drones >= 4, "Cultivated drones archived: " .. tostring(lib.Cultivated and lib.Cultivated.drones))
-  T.ok(lib.Cultivated and lib.Cultivated.princesses >= 1, "Cultivated princess archived")
+  local common, cult = lib[U("Common")], lib[U("Cultivated")]
+  T.ok(common and common.drones >= 4, "Common drones archived: " .. tostring(common and common.drones))
+  T.ok(cult and cult.drones >= 4, "Cultivated drones archived: " .. tostring(cult and cult.drones))
+  T.ok(cult and cult.princesses >= 1, "Cultivated princess archived")
   T.eq(env.world.foundation, "Block of Copper", "foundation swapped to Block of Copper")
   T.ok(util.contains(env.me.craftRequests, "Block of Copper"), "foundation block was autocrafted")
   local heaters = 0
@@ -150,9 +152,22 @@ T.run("integration: webhook cards, status card, host push", function()
   T.ok(sawIcon, "cards carry the species icon as thumbnail")
   local reply = ctl:discordReply("find common", "tester")
   T.ok(reply.embeds and reply.embeds[1].thumbnail and reply.embeds[1].thumbnail.url:find("forestry_speciesCommon"), "find reply is an embed with the icon")
-  T.ok(reply.embeds[1].description:find("1001 Common", 1, true), "find reply lists the catalog number")
+  T.ok(reply.embeds[1].description:find("1001 Common (Forestry)", 1, true), "find reply lists number and mod")
   local plain = ctl:discordReply("help", "tester")
   T.ok(plain.content and plain.content:find("breed <number", 1, true), "help reply is a code block")
+
+  -- relay: the host answered a command poll with a button click; the controller posts the result back
+  env.httpReply = function(entry)
+    if entry.url:find("/commands", 1, true) then return '{"commands":[{"id":"btn-1","line":"status","user":"clicker"}]}' end
+    return '{"id":"7"}'
+  end
+  ctl.lastRelayPoll, ctl.relayBackoffUntil = 0, 0
+  ctl:relayTick()
+  local posted
+  for _, r in ipairs(env.http) do
+    if r.url == "http://10.0.0.5:8080/result" and r.method == "POST" then posted = r.body end
+  end
+  T.ok(posted and posted:find('"id":"btn-1"', 1, true) and posted:find("requests:", 1, true), "relay result posted with the command id")
   T.ok(deletes >= 1, "the status card was replaced (old one deleted): " .. deletes)
   T.ok(pushes >= 1, "status pushed to the custom host: " .. pushes)
   for _, r in ipairs(env.http) do

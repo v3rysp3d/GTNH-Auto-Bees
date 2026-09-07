@@ -1,13 +1,17 @@
 -- Controller: planner, job queue, cell dispatcher, library bookkeeping,
--- command handling for the GUI and Discord.
+-- command handling for the GUI, Discord and the relay on the custom host.
+--
+-- Species are identified by allele uid everywhere; display names come from
+-- the catalog and carry the mod name when several mods share a name.
 --
 -- Lives on the computer. Needs on its OC network: an ME network component,
 -- per cell two ME Interfaces each behind an Adapter with a Database upgrade,
--- a modem, and optionally an internet card for Discord.
+-- a modem, and optionally an internet card for Discord and the host link.
 local component = require("component")
 local event = require("event")
 
 local util = require("src.util")
+local json = require("src.json")
 local graph = require("src.graph")
 local catalog = require("src.catalog")
 local conditions = require("src.conditions")
@@ -19,15 +23,7 @@ local discord = require("src.discord")
 local survey = require("src.survey")
 local settings = require("src.settings")
 local connect = require("src.connect")
-
----@class ControllerConfig
----@field dataDir string
----@field port number
----@field ae2 table
----@field cells table
----@field stations table
----@field defaults table
----@field discord table
+local http = require("src.http")
 
 local controller = {}
 
@@ -37,7 +33,7 @@ local function clean(s)
 end
 
 ---Create a controller
----@param cfg ControllerConfig
+---@param cfg table   config.controller
 ---@param logger Logger
 function controller:new(cfg, logger)
   local obj = {}
@@ -46,45 +42,42 @@ function controller:new(cfg, logger)
   obj.running = false
 
   obj.cells = {}            -- name -> { addr, status, lastSeen, job, housing, foundation, gen, phase, cfg }
-  obj.library = {}          -- species -> counts
+  obj.library = {}          -- uid -> counts (see ae2:library)
   obj.libraryScannedAt = 0
   obj.requestsByReqId = {}
   obj.discordQueue = {}
-  obj.lastPoll, obj.lastStatusPost, obj.statusMsgId = 0, 0, nil
-  obj.commandOutput = {}
+  obj.lastPoll, obj.lastStatusPost = 0, 0
+  obj.lastPush, obj.lastRelayPoll, obj.relayBackoffUntil = 0, 0, 0
 
   ----------------------------------------------------------------------
   -- logging helpers
   ----------------------------------------------------------------------
-  function obj:log(fmt, ...)
-    local msg = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
-    self.logger:info(clean(msg))
+  local function fmt(f, ...)
+    if select("#", ...) > 0 then return string.format(f, ...) end
+    return tostring(f)
   end
 
-  function obj:warn(fmt, ...)
-    local msg = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
-    self.logger:warning(clean(msg))
-  end
+  function obj:log(f, ...) self.logger:info(clean(fmt(f, ...))) end
+  function obj:warn(f, ...) self.logger:warning(clean(fmt(f, ...))) end
 
-  function obj:notify(fmt, ...)
-    local msg = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
+  function obj:notify(f, ...)
+    local msg = fmt(f, ...)
     self.logger:info(clean(msg))
     if self.discordOn then self.discordQueue[#self.discordQueue + 1] = { text = msg } end
   end
 
-  ---Icon URL for a species (generated icons served from the repository).
-  function obj:imageUrl(name)
+  ---Icon URL for a species uid (generated icons served from the repository).
+  function obj:imageUrl(uid)
     local base = (self.cfg.discord or {}).imageBase
-    if not name or not base or base == "" then return nil end
-    local e = self.cat:byNameLookup(name)
-    local file = catalog.iconFile(name, e and e.uid or nil)
+    if not uid or not base or base == "" then return nil end
+    local file = catalog.iconFile(uid)
     if not file then return nil end
     return base .. file
   end
 
   ---Log a line and queue a Discord embed card for it.
   ---kind: start | phase | done | failed | warn | needs   fields: { {name, value[, inline]} ... }
-  ---species: name whose icon becomes the card thumbnail
+  ---species: uid whose icon becomes the card thumbnail
   function obj:card(kind, title, fields, description, species)
     self.logger:info(clean(title))
     if self.discordOn then
@@ -93,8 +86,11 @@ function controller:new(cfg, logger)
     end
   end
 
+  function obj:label(uid) return self.cat:label(uid) end
+  function obj:nameOf(uid) return self.cat:nameOf(uid) end
+
   ----------------------------------------------------------------------
-  -- init
+  -- init / stop
   ----------------------------------------------------------------------
   function obj:init()
     local cfg = self.cfg
@@ -126,7 +122,6 @@ function controller:new(cfg, logger)
     end
     self:saveState()
 
-    -- components
     local meProxy = ae2.findNetwork(component, cfg.ae2 and cfg.ae2.network)
     self.me = meProxy and ae2.new(meProxy) or nil
     if self.me then
@@ -139,20 +134,19 @@ function controller:new(cfg, logger)
     self.internet = internetAddr and component.proxy(internetAddr) or nil
     self.settingsData = settings.load()
     self:connectDiscord()
-    self.lastPush = 0
 
-    self:log("controller: %d species, %d mutations, ME %s, modem %s, discord %s",
+    self:log("controller: %d species, %d mutations, ME %s, modem %s, discord %s, host %s",
       util.count(self.graph.species), #self.graph.mutations, self.me and "ok" or "MISSING", modemAddr and "ok" or "MISSING",
-      self.discordOn and "on" or "off")
+      self.discordOn and "on" or "off", ((cfg.host or {}).url or "") ~= "" and "linked" or "off")
     if not self.me then self:warn("no ME network component: library and stocking are disabled") end
     if self.me and not self.me.db then self:warn("no Database upgrade found: robots cannot be served") end
 
     self:scanLibrary(true)
     if self.discordOn then
-      local dcfg = self.cfg.discord or {}
+      local dcfg = cfg.discord or {}
       if self.dc:canRead() and not self.S.discordLastId then self.dc:syncCursor(); self.S.discordLastId = self.dc.lastId; self:saveState() end
       local how = self.dc:canRead() and ("Type `" .. (dcfg.prefix or "!") .. "help` here for commands.")
-        or "Webhook mode: events and the status card are posted here; commands need a bot token."
+        or "Webhook mode: events and the status card are posted here. Commands come through the relay or a bot token."
       self:card("info", "Auto Bees controller online", { { "Species", tostring(util.count(self.graph.species)) },
         { "Cells configured", tostring(util.count(cfg.cells or {})) } }, how)
       self.statusDirty = true
@@ -169,6 +163,8 @@ function controller:new(cfg, logger)
     if self.signalHandler then event.ignore("modem_message", self.signalHandler) end
     self:saveState()
   end
+
+  function obj:saveState() util.saveTable(self.statePath, self.S) end
 
   ---(Re)build the Discord bridge from the current config.
   function obj:connectDiscord()
@@ -189,39 +185,6 @@ function controller:new(cfg, logger)
     if path:match("^discord") then self:connectDiscord() end
   end
 
-  ---Status snapshot pushed to the custom host and shown by `status`.
-  function obj:statusTable()
-    local cells = {}
-    for name, c in pairs(self.cells) do
-      local job = c.job and self.S.jobs[c.job]
-      cells[name] = { status = c.status, job = job and job.id or nil, target = job and job.target or nil,
-        generation = c.gen, phase = c.phase, foundation = c.foundation }
-    end
-    local queue = {}
-    for _, r in ipairs(self.S.requests) do
-      if r.status ~= "done" then queue[#queue + 1] = { id = r.id, target = r.target, status = r.status, by = r.by } end
-    end
-    return { time = util.now(), cells = cells, queue = queue,
-      librarySpecies = util.count(self:ownedSet()), princesses = self:princessPool() }
-  end
-
-  function obj:hostTick()
-    local h = self.cfg.host or {}
-    local interval = tonumber(h.pushInterval) or 0
-    if not self.internet or (h.url or "") == "" or interval <= 0 then return end
-    if util.now() - self.lastPush < interval then return end
-    self.lastPush = util.now()
-    local ok, why = connect.pushStatus(self.internet, h.url, self:statusTable())
-    if not ok and not self.hostWarned then
-      self.hostWarned = true
-      self:warn("host push failed: %s", tostring(why))
-    elseif ok then
-      self.hostWarned = false
-    end
-  end
-
-  function obj:saveState() util.saveTable(self.statePath, self.S) end
-
   ----------------------------------------------------------------------
   -- library
   ----------------------------------------------------------------------
@@ -239,7 +202,9 @@ function controller:new(cfg, logger)
 
   function obj:ownedSet()
     local owned = {}
-    for name, b in pairs(self.library) do if b.drones > 0 then owned[name] = true end end
+    for uid, b in pairs(self.library) do
+      if b.drones > 0 and not uid:match("^name:") then owned[uid] = true end
+    end
     return owned
   end
 
@@ -249,8 +214,8 @@ function controller:new(cfg, logger)
     return n
   end
 
-  function obj:dronesOf(name) return self.library[name] and self.library[name].drones or 0 end
-  function obj:princessesOf(name) return self.library[name] and self.library[name].princesses or 0 end
+  function obj:dronesOf(uid) return self.library[uid] and self.library[uid].drones or 0 end
+  function obj:princessesOf(uid) return self.library[uid] and self.library[uid].princesses or 0 end
 
   ----------------------------------------------------------------------
   -- planning
@@ -280,18 +245,17 @@ function controller:new(cfg, logger)
         cost = cost + 20
       end
     end
-    if (self.cfg.effectBlacklist or {})[m.result] then return nil end
+    local black = self.cfg.effectBlacklist or {}
+    if black[m.result] or black[self:nameOf(m.result)] then return nil end
     return cost
   end
 
-  function obj:planFor(target)
-    return self.graph:plan(target, self:ownedSet(), {
+  function obj:planFor(uid)
+    return self.graph:plan(uid, self:ownedSet(), {
       chanceWeight = self.cfg.chanceWeight or 0.1,
       conditionCost = function(conds, m) return self:conditionCost(conds, m) end,
     })
   end
-
-  function obj:label(name) return self.cat:label(name) end
 
   ----------------------------------------------------------------------
   -- requests and jobs
@@ -300,6 +264,12 @@ function controller:new(cfg, logger)
     local id = prefix .. self.S.nextId
     self.S.nextId = self.S.nextId + 1
     return id
+  end
+
+  function obj:namesFor(...)
+    local names = {}
+    for _, uid in ipairs({ ... }) do names[uid] = self:nameOf(uid) end
+    return names
   end
 
   function obj:jobFromStep(req, step, keep)
@@ -312,7 +282,8 @@ function controller:new(cfg, logger)
     end
     return {
       id = self:newId("j"), request = req.id, kind = "mutate",
-      target = step.result, a = step.a, b = step.b, chance = step.chance, conds = step.conds,
+      target = step.result, a = step.a, b = step.b, names = self:namesFor(step.result, step.a, step.b),
+      chance = step.chance, conds = step.conds,
       foundation = foundation, needTemp = needTemp, needHum = needHum,
       keepDrones = keep, wantPrincess = true,
       droneSupply = d.droneSupply, maxGenerations = d.maxGenerations, warnAfter = d.warnAfter,
@@ -320,33 +291,35 @@ function controller:new(cfg, logger)
     }
   end
 
-  function obj:stockJob(req, species, keep)
+  function obj:stockJob(req, uid, keep)
     local d = self.cfg.defaults
     return {
       id = self:newId("j"), request = req.id, kind = "stock",
-      target = species, a = species, b = species, chance = 100, conds = {},
+      target = uid, a = uid, b = uid, names = self:namesFor(uid), chance = 100, conds = {},
       keepDrones = keep, wantPrincess = true,
       droneSupply = d.droneSupply, maxGenerations = d.maxGenerations,
       status = "pending", created = util.now(),
     }
   end
 
-  ---Create a request. opts: { keep = n, extra = { [species] = n }, keepAll = n }
-  function obj:addRequest(targetName, opts, who)
+  ---Create a request. opts: { keep = n, extra = { [uid] = n }, keepAll = n }
+  function obj:addRequest(targetUid, opts, who)
     opts = opts or {}
     local d = self.cfg.defaults
     self:scanLibrary(true)
-    local plan, why, blockers = self:planFor(targetName)
+    local plan, why, blockers = self:planFor(targetUid)
     if not plan then
       local msg = why
       if blockers then
-        if #blockers.base > 0 then msg = msg .. "; hive species needed: " .. table.concat(blockers.base, ", ") end
+        if #blockers.base > 0 then
+          msg = msg .. "; hive species needed: " .. table.concat(util.map(blockers.base, function(u) return self:label(u) end), ", ")
+        end
         if #blockers.blocked > 0 then msg = msg .. "; blocked: " .. table.concat(blockers.blocked, " | ") end
       end
       return nil, msg
     end
     local S = self.S
-    local req = { id = self:newId("r"), target = targetName, by = who or "gui", created = util.now(),
+    local req = { id = self:newId("r"), target = targetUid, by = who or "gui", created = util.now(),
       keep = opts.keep or d.keepDrones, extra = opts.extra or {}, status = "active", jobs = {} }
 
     -- a step with chance p burns roughly 100/p parent drones before it hits
@@ -367,23 +340,23 @@ function controller:new(cfg, logger)
         end
       end
       local keep = math.max(d.keepDrones, needed[step.result] or 0)
-      if step.result == targetName then keep = req.keep end
+      if step.result == targetUid then keep = req.keep end
       if opts.keepAll then keep = math.max(keep, opts.keepAll) end
       if req.extra[step.result] then keep = math.max(keep, req.extra[step.result]) end
       local job = self:jobFromStep(req, step, keep)
       S.jobs[job.id] = job
       req.jobs[#req.jobs + 1] = job.id
     end
-    for species, n in pairs(req.extra) do
-      if not produced[species] then
-        if not self.graph.species[species] then return nil, "unknown extra species " .. species end
-        local job = self:stockJob(req, species, n)
+    for uid, n in pairs(req.extra) do
+      if not produced[uid] then
+        if not self.graph.species[uid] then return nil, "unknown extra species " .. tostring(uid) end
+        local job = self:stockJob(req, uid, n)
         S.jobs[job.id] = job
         req.jobs[#req.jobs + 1] = job.id
       end
     end
     if #plan.steps == 0 and util.count(req.extra) == 0 then
-      local job = self:stockJob(req, targetName, req.keep)
+      local job = self:stockJob(req, targetUid, req.keep)
       S.jobs[job.id] = job
       req.jobs[#req.jobs + 1] = job.id
     end
@@ -490,7 +463,7 @@ function controller:new(cfg, logger)
           c.status = "busy"
           c.gen, c.phase = 0, "prepare"
           self.link:send(c.addr, "job", {
-            id = job.id, target = job.target, a = job.a, b = job.b, chance = job.chance,
+            id = job.id, target = job.target, a = job.a, b = job.b, names = job.names, chance = job.chance,
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
           })
@@ -522,15 +495,17 @@ function controller:new(cfg, logger)
     if p.kind then
       if not beeIface then return fail("cell has no beeInterface configured") end
       local slot = (p.kind == "princess") and slots.bees.princess or slots.bees.drone
-      local label
-      if p.species then
-        label = p.species .. (p.kind == "princess" and " Princess" or " Drone")
-      else
+      local name = p.name or (p.species and self:nameOf(p.species))
+      if not name then
+        -- any princess: the species with the most princesses
         local bestName, bestN = nil, 0
-        for name, b in pairs(self.library) do if b.princesses > bestN then bestName, bestN = name, b.princesses end end
+        for uid, b in pairs(self.library) do
+          if b.princesses > bestN and not uid:match("^name:") then bestName, bestN = b.name, b.princesses end
+        end
         if not bestName then return fail("no princesses in the library") end
-        label = bestName .. " Princess"
+        name = bestName
       end
+      local label = name .. (p.kind == "princess" and " Princess" or " Drone")
       local ok, err = self.me:stockIntoInterface(beeIface, slot, { label = label }, p.count or 1, 1)
       if not ok then return fail(err) end
       self.requestsByReqId[p.reqId] = { iface = beeIface, slot = slot }
@@ -654,7 +629,7 @@ function controller:new(cfg, logger)
       if r and self.me then self.me:clearInterfaceSlot(r.iface, r.slot) end
       self.requestsByReqId[p.reqId] = nil
     elseif msg.type == "badstock" then
-      self:notify("%s: library sent a non-pure %s %s, quarantined", c.name, tostring(p.species), tostring(p.kind))
+      self:notify("%s: library sent a non-pure %s %s, quarantined", c.name, self:label(p.species), tostring(p.kind))
     elseif msg.type == "event" then
       local d = p.data or {}
       if p.kind == "gen" then
@@ -697,7 +672,7 @@ function controller:new(cfg, logger)
   end
 
   ----------------------------------------------------------------------
-  -- formatting for GUI / Discord
+  -- formatting for GUI / Discord / host
   ----------------------------------------------------------------------
   function obj:cellLines()
     local out = {}
@@ -759,6 +734,25 @@ function controller:new(cfg, logger)
     }
   end
 
+  ---Status snapshot pushed to the custom host (the relay draws its main card from it).
+  function obj:statusTable()
+    local cells = {}
+    for name, c in pairs(self.cells) do
+      local job = c.job and self.S.jobs[c.job]
+      cells[name] = { status = c.status, job = job and job.id or nil, target = job and self:label(job.target) or nil,
+        targetUid = job and job.target or nil, generation = c.gen, phase = c.phase, foundation = c.foundation }
+    end
+    local queue = {}
+    for _, r in ipairs(self.S.requests) do
+      if r.status ~= "done" then
+        queue[#queue + 1] = { id = r.id, target = self:label(r.target), targetUid = r.target, status = r.status, by = r.by }
+      end
+    end
+    return { time = util.now(), cells = cells, queue = queue, queueLines = self:queueLines(),
+      librarySpecies = util.count(self:ownedSet()), princesses = self:princessPool(),
+      imageBase = (self.cfg.discord or {}).imageBase }
+  end
+
   ----------------------------------------------------------------------
   -- commands
   ----------------------------------------------------------------------
@@ -769,34 +763,9 @@ function controller:new(cfg, logger)
       if not tok then tok, n = item, self.cfg.defaults.keepDrones end
       local e, err = self.cat:resolve(tok)
       if not e then return nil, err end
-      extra[e.name] = tonumber(n)
+      extra[e.uid] = tonumber(n)
     end
     return extra
-  end
-
-  ---A Discord reply for a command line: an embed with the species icon for
-  ---species-centred commands, a plain code block otherwise. Returns the payload.
-  function obj:discordReply(line, who)
-    local cmd = util.parseCommand(line)
-    local verb = (cmd.words[1] or ""):lower()
-    local text = tostring(self:command(line, who))
-    local embedVerbs = { find = true, plan = true, needs = true, library = true, status = true, queue = true, cells = true, breed = true }
-    if not embedVerbs[verb] then
-      return { content = ("**" .. line .. "**\n```\n" .. text .. "\n```"):sub(1, 1990) }
-    end
-    local species
-    if verb == "find" then
-      local matches = self.cat:find(cmd.words[2] or "", 1)
-      species = matches[1] and matches[1].name or nil
-    elseif cmd.words[2] then
-      local e = self.cat:resolve(cmd.words[2])
-      species = e and e.name or nil
-    end
-    local body = text
-    if #body > 3900 then body = body:sub(1, 3880) .. "\n..." end
-    local kind = (verb == "breed") and "start" or "info"
-    local title = species and (verb .. ": " .. self:label(species)) or verb
-    return { embeds = require("src.json").array({ discord.embed(kind, title, "```\n" .. body .. "\n```", nil, self:imageUrl(species)) }) }
   end
 
   ---Execute a command line. Returns the response text.
@@ -809,6 +778,31 @@ function controller:new(cfg, logger)
     return res
   end
 
+  ---A Discord/relay reply for a command line: an embed with the species icon
+  ---for species-centred commands, a plain code block otherwise.
+  function obj:discordReply(line, who)
+    local cmd = util.parseCommand(line)
+    local verb = (cmd.words[1] or ""):lower()
+    local text = tostring(self:command(line, who))
+    local embedVerbs = { find = true, plan = true, needs = true, library = true, status = true, queue = true, cells = true, breed = true }
+    if not embedVerbs[verb] then
+      return { content = ("**" .. line .. "**\n```\n" .. text .. "\n```"):sub(1, 1990) }
+    end
+    local uid
+    if verb == "find" then
+      local matches = self.cat:find(cmd.words[2] or "", 1)
+      uid = matches[1] and matches[1].uid or nil
+    elseif cmd.words[2] then
+      local e = self.cat:resolve(cmd.words[2])
+      uid = e and e.uid or nil
+    end
+    local body = text
+    if #body > 3900 then body = body:sub(1, 3880) .. "\n..." end
+    local kind = (verb == "breed") and "start" or "info"
+    local title = uid and (verb .. ": " .. self:label(uid)) or verb
+    return { embeds = json.array({ discord.embed(kind, title, "```\n" .. body .. "\n```", nil, self:imageUrl(uid)) }) }
+  end
+
   function obj:runCommand(line, who)
     local cmd = util.parseCommand(line)
     local w = cmd.words
@@ -819,7 +813,7 @@ function controller:new(cfg, logger)
         "breed <number|name> [keep N] [extra id=N ...] [all N]   queue a species, chain included",
         "plan <number|name>     show the chain the planner would use",
         "needs <number|name>    autocraft / station needs for that chain",
-        "find <text>            catalog numbers",
+        "find <text>            catalog numbers (shared names show their mod)",
         "status | queue | cells | library [text] | cancel <job|request> | scan | survey",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
@@ -828,29 +822,33 @@ function controller:new(cfg, logger)
     elseif verb == "find" then
       local list = self.cat:find(w[2] or "", 25)
       if #list == 0 then return "no match" end
-      return table.concat(util.map(list, function(e) return string.format("%d %s (%s)", e.id, e.name, e.mod or "-") end), "\n")
+      return table.concat(util.map(list, function(e)
+        return string.format("%d %s (%s)%s", e.id, e.name, e.mod or "-", self.library[e.uid] and self.library[e.uid].drones > 0 and "  in library" or "")
+      end), "\n")
     elseif verb == "breed" or verb == "plan" or verb == "needs" then
       local e, err = self.cat:resolve(w[2])
       if not e then return "error: " .. tostring(err) end
       if verb == "breed" then
         local extra, err2 = self:parseExtras(cmd.opts.extra)
         if not extra then return "error: " .. tostring(err2) end
-        local req, info = self:addRequest(e.name, { keep = tonumber(cmd.opts.keep), extra = extra, keepAll = tonumber(cmd.opts.all) }, who)
-        if not req then return "cannot plan " .. self:label(e.name) .. ": " .. tostring(info) end
-        self:notify("%s queued %s: %d job(s)", who or "gui", self:label(e.name), #req.jobs)
+        local req, info = self:addRequest(e.uid, { keep = tonumber(cmd.opts.keep), extra = extra, keepAll = tonumber(cmd.opts.all) }, who)
+        if not req then return "cannot plan " .. self:label(e.uid) .. ": " .. tostring(info) end
+        self:notify("%s queued %s: %d job(s)", who or "gui", self:label(e.uid), #req.jobs)
         self:dispatch()
-        return string.format("queued %s as %s with %d job(s)", self:label(e.name), req.id, #req.jobs)
+        return string.format("queued %s as %s with %d job(s)", self:label(e.uid), req.id, #req.jobs)
       end
       self:scanLibrary()
-      local plan, why, blockers = self:planFor(e.name)
+      local plan, why, blockers = self:planFor(e.uid)
       if not plan then
         local msg = "cannot plan: " .. tostring(why)
-        if blockers and #blockers.base > 0 then msg = msg .. "\nhive species needed: " .. table.concat(blockers.base, ", ") end
+        if blockers and #blockers.base > 0 then
+          msg = msg .. "\nhive species needed: " .. table.concat(util.map(blockers.base, function(u) return self:label(u) end), ", ")
+        end
         if blockers and #blockers.blocked > 0 then msg = msg .. "\nblocked mutations:\n  " .. table.concat(blockers.blocked, "\n  ") end
         return msg
       end
       if verb == "plan" then
-        local out = { string.format("%s: %d step(s), cost %.1f", self:label(e.name), #plan.steps, plan.cost) }
+        local out = { string.format("%s: %d step(s), cost %.1f", self:label(e.uid), #plan.steps, plan.cost) }
         for i, s in ipairs(plan.steps) do
           out[#out + 1] = string.format("%2d. %s + %s -> %s  %d%%  %s", i, self:label(s.a), self:label(s.b), self:label(s.result), s.chance, conditions.describeAll(s.conds))
         end
@@ -878,11 +876,16 @@ function controller:new(cfg, logger)
       self:scanLibrary(true)
       local out = {}
       local filter = (w[2] or ""):lower()
-      for _, name in ipairs(util.sortedKeys(self.library)) do
-        local b = self.library[name]
+      for _, key in ipairs(util.sortedKeys(self.library)) do
+        local b = self.library[key]
+        local name = b.name or key
         if filter == "" or name:lower():find(filter, 1, true) then
-          out[#out + 1] = string.format("%-28s drones %3d  princesses %2d%s", self:label(name), b.drones, b.princesses,
-            (b.hybrids > 0 or b.unanalyzed > 0) and string.format("  (+%d hybrid, %d unanalyzed)", b.hybrids, b.unanalyzed) or "")
+          if key:match("^name:") then
+            out[#out + 1] = string.format("%-30s unanalyzed %d", name, b.unanalyzed)
+          else
+            out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s", self:label(key), b.drones, b.princesses,
+              b.hybrids > 0 and string.format("  (+%d hybrid)", b.hybrids) or "")
+          end
         end
       end
       if #out > 40 then
@@ -951,6 +954,7 @@ function controller:new(cfg, logger)
       if not w[3] then return "usage: settings host <url>" end
       self:setSetting("host.url", w[3])
       if not self.cfg.host.pushInterval then self:setSetting("host.pushInterval", 30) end
+      self.relayBackoffUntil = 0
       local _, why = connect.testHost(self.internet, w[3])
       return "host set to " .. w[3] .. "; " .. why
     elseif sub == "interval" then
@@ -986,7 +990,6 @@ function controller:new(cfg, logger)
   ----------------------------------------------------------------------
   -- Discord
   ----------------------------------------------------------------------
-  ---The status card: one message that is replaced whenever a job starts or ends.
   function obj:statusEmbed()
     local fields = {}
     for _, name in ipairs(util.sortedKeys(self.cells)) do
@@ -1011,7 +1014,7 @@ function controller:new(cfg, logger)
 
   function obj:refreshStatusCard()
     if not self.discordOn or (self.cfg.discord or {}).statusCard == false then return end
-    local id = self.dc:replace(self.S.discordStatusId, { embeds = require("src.json").array({ self:statusEmbed() }) })
+    local id = self.dc:replace(self.S.discordStatusId, { embeds = json.array({ self:statusEmbed() }) })
     if id and id ~= true then self.S.discordStatusId = id; self:saveState() end
     self.statusDirty = false
   end
@@ -1035,8 +1038,8 @@ function controller:new(cfg, logger)
         if not m.bot and m.content:sub(1, #prefix) == prefix then
           local line = m.content:sub(#prefix + 1)
           self:log("discord %s: %s", m.author, line)
-          local ok, err = self.dc:send(self:discordReply(line, m.author))
-          if not ok then self:warn("discord reply failed: %s", tostring(err)) end
+          local ok, err2 = self.dc:send(self:discordReply(line, m.author))
+          if not ok then self:warn("discord reply failed: %s", tostring(err2)) end
         end
       end
       if self.dc.lastId ~= self.S.discordLastId then self.S.discordLastId = self.dc.lastId; self:saveState() end
@@ -1045,6 +1048,54 @@ function controller:new(cfg, logger)
     if interval > 0 and util.now() - self.lastStatusPost > interval then
       self.lastStatusPost = util.now()
       self:refreshStatusCard()
+    end
+  end
+
+  ----------------------------------------------------------------------
+  -- custom host: status push + relay commands (buttons on Discord)
+  ----------------------------------------------------------------------
+  function obj:hostTick()
+    local h = self.cfg.host or {}
+    if not self.internet or (h.url or "") == "" then return end
+    local interval = tonumber(h.pushInterval) or 0
+    if interval > 0 and util.now() - self.lastPush >= interval then
+      self.lastPush = util.now()
+      local ok, why = connect.pushStatus(self.internet, h.url, self:statusTable(), connect.hostHeaders(h))
+      if not ok and not self.hostWarned then
+        self.hostWarned = true
+        self:warn("host push failed: %s", tostring(why))
+      elseif ok then
+        self.hostWarned = false
+      end
+    end
+    self:relayTick()
+  end
+
+  ---Ask the relay for queued commands (button clicks, slash commands) and answer them.
+  function obj:relayTick()
+    local h = self.cfg.host or {}
+    if h.relay == false or util.now() < self.relayBackoffUntil then return end
+    local pollEvery = tonumber(h.pollInterval) or 3
+    if util.now() - self.lastRelayPoll < pollEvery then return end
+    self.lastRelayPoll = util.now()
+    local base = h.url:gsub("/+$", "")
+    local headers = connect.hostHeaders(h)
+    local code, body = http.request(self.internet, "GET", base .. "/commands", nil, headers, 5)
+    if not code or code == 404 then
+      -- no relay behind this host (or it is down): try again in a minute
+      self.relayBackoffUntil = util.now() + 60
+      return
+    end
+    if code < 200 or code >= 300 then return end
+    local data = json.decode(body)
+    local list = type(data) == "table" and (data.commands or data) or {}
+    for _, c in ipairs(list) do
+      if type(c) == "table" and c.line then
+        self:log("relay %s: %s", tostring(c.user or "?"), c.line)
+        local payload = self:discordReply(c.line, c.user or "relay")
+        payload.id = c.id
+        http.request(self.internet, "POST", base .. "/result", json.encode(payload), headers, 5)
+      end
     end
   end
 

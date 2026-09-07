@@ -6,6 +6,7 @@ config-descriptor.yml
 docs
 test
 tools
+relay
 *.md
 *.png
 *.zip

@@ -270,36 +270,49 @@ function cell:new(cfg, logger)
     return true
   end
 
-  function api.fetch(species, kind, count)
-    for attempt = 1, 3 do
-      local reply, err = ask({ species = species, kind = kind, count = count })
-      if not reply then return nil, err end
+  --- Pull bees of species `uid` (display `name`) from the library. The ME
+  --- network can only pick by label, so a pure bee of another species that
+  --- shares the name is parked in the inventory while we ask again, and
+  --- returned to the library afterwards. Impure drones are never returned.
+  function api.fetch(uid, kind, count, name)
+    local parked, result, err = {}, nil, nil
+    for attempt = 1, 4 do
+      local reply, askErr = ask({ species = uid, name = name, kind = kind, count = count })
+      if not reply then err = askErr break end
       goTo(-1)
       local slot = firstEmpty()
-      if not slot then return nil, "robot inventory full" end
+      if not slot then err = "robot inventory full" break end
       robot.select(slot)
       invctl.suckFromSlot(sides.down, reply.slot, count)
       tell("got", { reqId = reply.reqId })
       local st = stackIn(slot)
       if not st then
-        say("fetch %s %s: nothing arrived (attempt %d)", tostring(species), kind, attempt)
+        say("fetch %s %s: nothing arrived (attempt %d)", tostring(name or uid), kind, attempt)
       elseif genome.kind(st) ~= kind then
         say("fetch: got %s instead of %s, returning it", tostring(genome.kind(st)), kind)
         dumpSlot(slot)
+      elseif not uid or kind == "princess" then
+        -- any princess is usable, the breeder converts her
+        result = slot
+        break
       else
-        if species and not genome.analyzed(st) then api.analyze(slot); st = stackIn(slot) end
-        if species and kind == "drone" and not genome.isPure(st, species) then
-          -- impure library stock: never return it to the network
-          say("fetch: %s is not a pure %s, quarantining", genome.describe(st), species)
-          tell("badstock", { species = species, kind = kind, got = genome.summary(st) })
-          api.discard(slot)
+        if not genome.analyzed(st) then api.analyze(slot); st = stackIn(slot) end
+        if genome.isPure(st, uid) then
+          result = slot
+          break
+        elseif genome.isPureAny(st) then
+          say("fetch: %s shares the name but is another species, parking it", genome.describe(st))
+          parked[#parked + 1] = slot
         else
-          -- princesses are always usable: the breeder converts an impure one
-          return slot
+          say("fetch: %s is not pure, quarantining", genome.describe(st))
+          tell("badstock", { species = uid, kind = kind, got = genome.summary(st) })
+          api.discard(slot)
         end
       end
     end
-    return nil, "library did not deliver a pure " .. tostring(species) .. " " .. kind
+    for _, slot in ipairs(parked) do api.archive(slot, robot.count(slot)) end
+    if result then return result end
+    return nil, err or ("library did not deliver a pure " .. tostring(name or uid) .. " " .. kind)
   end
 
   function api.insertQueen(slot)

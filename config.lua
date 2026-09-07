@@ -85,6 +85,15 @@ local config = {
       imageBase = "https://raw.githubusercontent.com/v3rysp3d/GTNH-Auto-Bees/main/docs/bees/",
     },
 
+    -- Custom host: status pushes, and the relay (relay/bot.py) for Discord buttons
+    host = {
+      url = "",                -- e.g. "http://192.168.1.10:8080" (the setup guide or `settings host <url>` fills this)
+      pushInterval = 30,       -- seconds between status pushes to <url>/status, 0 = never
+      pollInterval = 3,        -- seconds between polls of <url>/commands (button clicks)
+      relay = true,            -- set false if the host only receives status
+      secret = "",             -- must match RELAY_SECRET on the host when set
+    },
+
     -- Extra parsers if the survey reports UNPARSED condition strings
     conditionPatterns = {
       -- { pattern = "^Occurs only in dimension (.+)$", kind = "dimension" },

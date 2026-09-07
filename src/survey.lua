@@ -3,6 +3,11 @@
 --
 -- Needs an Adapter touching a Forestry bee housing (a Bee House is fine).
 -- Optionally an ME network component for stock / pattern status.
+--
+-- The graph is keyed by allele uid: listAllSpecies() gives every species
+-- that results from a mutation with its uid, and getBeeParents(uid) gives its
+-- parents with their uids. Only if that fails is the name-only
+-- getBeeBreedingData() used.
 local component = require("component")
 
 local util = require("src.util")
@@ -19,6 +24,32 @@ local function toArray(t)
   local out = {}
   for _, v in pairs(t or {}) do out[#out + 1] = v end
   return out
+end
+
+--- Build the uid-keyed graph through getBeeParents. Returns graph or nil.
+local function graphFromParents(bh, speciesList, say)
+  local entries, failures = {}, 0
+  for _, sp in ipairs(speciesList) do
+    if type(sp) == "table" and sp.uid then
+      local ok, parents = pcall(bh.getBeeParents, sp.uid)
+      if ok and type(parents) == "table" then
+        for _, m in pairs(parents) do
+          if type(m) == "table" and type(m.allele1) == "table" and type(m.allele2) == "table" then
+            entries[#entries + 1] = {
+              result = { name = sp.name, uid = sp.uid },
+              allele1 = m.allele1, allele2 = m.allele2,
+              chance = m.chance, specialConditions = toArray(m.specialConditions),
+            }
+          end
+        end
+      else
+        failures = failures + 1
+      end
+    end
+  end
+  if #entries == 0 then return nil end
+  if failures > 0 then say(string.format("getBeeParents failed for %d species", failures)) end
+  return graph.fromParents(entries)
 end
 
 ---Run the survey.
@@ -40,12 +71,20 @@ function survey.run(dataDir, say, opts)
   end
   local bh = component.proxy(housingAddr)
 
-  local okData, data = pcall(bh.getBeeBreedingData)
-  if not okData or type(data) ~= "table" then return false, "getBeeBreedingData failed: " .. tostring(data) end
   local okSpecies, speciesList = pcall(bh.listAllSpecies)
   if not okSpecies or type(speciesList) ~= "table" then speciesList = {} end
+  speciesList = toArray(speciesList)
 
-  local g = graph.fromBreedingData(toArray(data), toArray(speciesList))
+  local g = graphFromParents(bh, speciesList, say)
+  if g then
+    say(string.format("graph keyed by uid from getBeeParents (%d species listed)", #speciesList))
+  else
+    local okData, data = pcall(bh.getBeeBreedingData)
+    if not okData or type(data) ~= "table" then return false, "getBeeBreedingData failed: " .. tostring(data) end
+    g = graph.fromBreedingData(toArray(data), speciesList)
+    say("graph keyed by name from getBeeBreedingData (uids unavailable)")
+  end
+
   local stats = g:stats()
   say(string.format("mutations %d, species %d, hive-only species %d", stats.mutations, stats.species, stats.baseSpecies))
   util.saveTable(dataDir .. "/graph.dat", g:toTable())
@@ -56,6 +95,15 @@ function survey.run(dataDir, say, opts)
   cat:save()
   util.writeFile(dataDir .. "/catalog.txt", table.concat(cat:lines(), "\n") .. "\n")
   say(string.format("catalog: %d species numbered (%d new) -> %s/catalog.txt", util.count(cat.byId), fresh, dataDir))
+
+  local dupNames = util.sortedKeys(stats.duplicates)
+  if #dupNames > 0 then
+    say(string.format("%d display names are shared by several species (labels carry the mod):", #dupNames))
+    for _, name in ipairs(dupNames) do
+      local labels = util.map(stats.duplicates[name], function(uid) return cat:label(uid) end)
+      say("  " .. name .. ": " .. table.concat(labels, ", "))
+    end
+  end
 
   for _, kind in ipairs(util.sortedKeys(stats.kinds)) do say(string.format("  condition %-12s %d", kind, stats.kinds[kind])) end
   local unknownCount = util.count(stats.unknown)

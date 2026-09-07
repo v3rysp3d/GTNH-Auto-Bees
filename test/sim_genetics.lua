@@ -1,4 +1,6 @@
 -- A tiny Forestry-like genetics model for the tests. Deterministic RNG.
+-- Species are identified by uid ("forestry.species<Name>") like in the game;
+-- display names are the plain names.
 local sim = {}
 
 sim.dominant = { Forest = true, Meadows = true, Common = true, Cultivated = false, Noble = false }
@@ -8,6 +10,8 @@ sim.mutations = {
   { a = "Forest", b = "Meadows", result = "Common", chance = 15 },
   { a = "Common", b = "Forest", result = "Cultivated", chance = 12 },
 }
+
+function sim.uid(name) return "forestry.species" .. name end
 
 function sim.rng(seed)
   local v = seed or 1
@@ -39,8 +43,9 @@ function sim.analyze(st)
   if st.individual.isAnalyzed then return end
   local active, inactive = activeOf(st._a, st._b)
   st.individual.isAnalyzed = true
-  st.individual.active = { species = { name = active, temperature = "Normal", humidity = "Normal" }, fertility = 2, temperatureTolerance = "BOTH_2" }
-  st.individual.inactive = { species = { name = inactive }, fertility = 2 }
+  st.individual.active = { species = { name = active, uid = sim.uid(active), temperature = "Normal", humidity = "Normal" },
+    fertility = 2, temperatureTolerance = "BOTH_2" }
+  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) }, fertility = 2 }
 end
 
 ---One offspring of princess p and drone d. `conditions(m)` decides whether
@@ -58,16 +63,47 @@ function sim.offspring(kind, p, d, rng, conditions)
   return sim.mkBee(kind, pa, da, false)
 end
 
----Breeding data in the shape bee_housing.getBeeBreedingData() returns.
+local function conds(m)
+  local out = {}
+  if m.foundation then out[#out + 1] = "Requires " .. m.foundation .. " as a foundation." end
+  if m.temperature then out[#out + 1] = "Requires " .. m.temperature .. " temperature." end
+  return out
+end
+
+---Breeding data in the shape bee_housing.getBeeBreedingData() returns (names only).
 function sim.breedingData()
   local out = {}
   for _, m in ipairs(sim.mutations) do
-    local conds = {}
-    if m.foundation then conds[#conds + 1] = "Requires " .. m.foundation .. " as a foundation." end
-    if m.temperature then conds[#conds + 1] = "Requires " .. m.temperature .. " temperature." end
-    out[#out + 1] = { allele1 = m.a, allele2 = m.b, result = m.result, chance = m.chance, specialConditions = conds }
+    out[#out + 1] = { allele1 = m.a, allele2 = m.b, result = m.result, chance = m.chance, specialConditions = conds(m) }
   end
   return out
+end
+
+---Mutation list in the shape the survey builds from getBeeParents (with uids).
+function sim.parentsData()
+  local out = {}
+  for _, m in ipairs(sim.mutations) do
+    out[#out + 1] = {
+      result = { name = m.result, uid = sim.uid(m.result) },
+      allele1 = { name = m.a, uid = sim.uid(m.a) }, allele2 = { name = m.b, uid = sim.uid(m.b) },
+      chance = m.chance, specialConditions = conds(m),
+    }
+  end
+  return out
+end
+
+---A breeder job for the simulator: names become uids + a names map.
+function sim.job(fields)
+  local job = {}
+  for k, v in pairs(fields) do job[k] = v end
+  job.names = {}
+  for _, k in ipairs({ "target", "a", "b" }) do
+    if job[k] then
+      job.names[sim.uid(job[k])] = job[k]
+      job[k] = sim.uid(job[k])
+    end
+  end
+  return job
 end
 
 return sim

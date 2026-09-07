@@ -42,11 +42,18 @@ function connect.testHost(internet, url)
   return ok, (ok and "reachable: " or "not reachable: ") .. why
 end
 
+---Headers for the custom host: the shared secret when one is configured.
+function connect.hostHeaders(hostCfg)
+  local secret = hostCfg and hostCfg.secret
+  if secret and secret ~= "" then return { ["X-Auth"] = secret } end
+  return nil
+end
+
 ---Push a status table as JSON to <url>/status.
-function connect.pushStatus(internet, url, status)
+function connect.pushStatus(internet, url, status, headers)
   if not internet or not url or url == "" then return false, "host link not configured" end
   local base = url:gsub("/+$", "")
-  local code, resp = http.request(internet, "POST", base .. "/status", json.encode(status), nil, 6)
+  local code, resp = http.request(internet, "POST", base .. "/status", json.encode(status), headers, 6)
   if not code then return false, tostring(resp) end
   if code >= 200 and code < 300 then return true, "HTTP " .. code end
   return false, "HTTP " .. code

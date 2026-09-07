@@ -300,7 +300,12 @@ A webhook URL is all that is needed. Discord webhooks are one-way, so this is wh
 |---|---|---|
 | Webhook | a webhook URL | colour-coded event cards (job started, phase reached, done, failed, needs you), a status card that is replaced whenever a job starts or ends, the logger's warnings |
 | Bot, no hosting | a bot token and a channel id | all of the above plus `!commands` typed in the channel; the computer polls the channel every few seconds |
-| Relay bot | a bot process on a server of yours | buttons and slash commands (not part of this repository) |
+| Relay | `relay/bot.py` running on a machine of yours, plus the bot token | a main card with buttons (Status, Queue, Cells, Library, Find, Plan, Needs, Breed, Cancel, Rescan) and a `/bee` slash command; see [relay/README.md](relay/README.md) |
+
+Species are identified by their allele uid, not by name. Where two mods use the same name (Diamond, Ruby, Lapis,
+Emerald, Certus, Fluix, Sapphire, Water and a few more) every label carries the mod, for example
+`[4060] Diamond (GregTech)` and `[2033] Diamond (Extra Bees)`, `find diamond` lists both, and `breed` asks for the
+number when a bare name is shared.
 
 Every card shows the species icon, rendered the way the game does it (outline and body tinted with the species
 colours) for all 441 Forestry, Extra Bees, Magic Bees and GregTech species; the icons live in `docs/bees/` and are

@@ -101,23 +101,30 @@ function ae2:clearInterfaceSlot(iface, slot)
   return ok
 end
 
---- Library view: species -> { drones = n, princesses = n, queens = n, hybrids = n, unanalyzed = n }
---- Only analyzed, pure-bred bees count towards drones/princesses.
+--- Library view keyed by species uid:
+---   uid -> { name=, drones = n, princesses = n, queens = n, hybrids = n, unanalyzed = n }
+--- Only analyzed, pure-bred bees count towards drones/princesses. Unanalyzed
+--- bees reveal only a display name, so they are bucketed under "name:<name>".
 function ae2:library()
   local lib = {}
-  local function bucket(name)
-    lib[name] = lib[name] or { drones = 0, princesses = 0, queens = 0, hybrids = 0, unanalyzed = 0 }
-    return lib[name]
+  local function bucket(key, name)
+    lib[key] = lib[key] or { name = name, drones = 0, princesses = 0, queens = 0, hybrids = 0, unanalyzed = 0 }
+    return lib[key]
   end
   for _, st in ipairs(self:bees()) do
     local kind = genome.kind(st)
-    local species = genome.displaySpecies(st) or "?"
-    local b = bucket(species)
-    if not genome.analyzed(st) then b.unanalyzed = b.unanalyzed + (st.size or 1)
-    elseif not genome.isPureAny(st) then b.hybrids = b.hybrids + (st.size or 1)
-    elseif kind == "drone" then b.drones = b.drones + (st.size or 1)
-    elseif kind == "princess" then b.princesses = b.princesses + (st.size or 1)
-    elseif kind == "queen" then b.queens = b.queens + (st.size or 1) end
+    local n = st.size or 1
+    if not genome.analyzed(st) then
+      local name = genome.displaySpecies(st) or "?"
+      local b = bucket("name:" .. name, name)
+      b.unanalyzed = b.unanalyzed + n
+    else
+      local b = bucket(genome.active(st), genome.activeName(st))
+      if not genome.isPureAny(st) then b.hybrids = b.hybrids + n
+      elseif kind == "drone" then b.drones = b.drones + n
+      elseif kind == "princess" then b.princesses = b.princesses + n
+      elseif kind == "queen" then b.queens = b.queens + n end
+    end
   end
   return lib
 end

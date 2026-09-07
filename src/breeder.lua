@@ -7,7 +7,7 @@
 --   cell.listBees()                 -> { {slot=n, stack=t} ... } working inventory
 --   cell.read(slot)                 -> stack or nil
 --   cell.analyze(slot)              -> ok, err          (spends one honey drop)
---   cell.fetch(species, kind, n)    -> slot or nil, err  (from the library; species nil = any)
+--   cell.fetch(uid, kind, n, name)  -> slot or nil, err  (from the library; uid nil = any princess)
 --   cell.insertQueen(slot)          -> ok, err          (swap slot <-> housing queen slot)
 --   cell.insertDrone(slot)          -> ok, err          (swap slot <-> housing drone slot)
 --   cell.takeDrone()                -> slot or nil      (pull the housing drone stack back)
@@ -22,7 +22,7 @@
 --   cell.cancelled()                -> bool
 --
 -- job = {
---   id = "j12", target = "Common", a = "Forest", b = "Meadows",
+--   id = "j12", target = <uid>, a = <uid>, b = <uid>, names = { [uid] = "Common", ... },
 --   chance = 15, conds = {...parsed...},
 --   keepDrones = 8, wantPrincess = true,
 --   foundation = "Block of Copper" or nil, climate = { heater = 1 } or nil,
@@ -41,19 +41,23 @@ local breeder = {}
 
 local function summarize(stack) return genome.summary(stack) end
 
---- How good is this drone as a mate for reaching `species`?
-local function mateScore(stack, species)
+--- How good is this drone as a mate for reaching species `uid` (display `name`)?
+local function mateScore(stack, uid, name)
   if not genome.analyzed(stack) then
-    return genome.displaySpecies(stack) == species and 1 or 0
+    return genome.displaySpecies(stack) == name and 1 or 0
   end
-  if genome.isPure(stack, species) then return 3 end
-  if genome.hasSpecies(stack, species) then return 2 end
+  if genome.isPure(stack, uid) then return 3 end
+  if genome.hasSpecies(stack, uid) then return 2 end
   return 0
 end
 
 function breeder.run(cell, job)
   local target = job.target
   local A, B = job.a or target, job.b or target
+  -- species are uids; job.names maps them to the display names seen on
+  -- unanalyzed bees and used for library labels
+  local names = job.names or {}
+  local function nameOf(uid) return names[uid] or uid end
   local keep = job.keepDrones or 8
   local maxGen = job.maxGenerations or 400
   local supply = job.droneSupply or 16
@@ -108,7 +112,7 @@ function breeder.run(cell, job)
   -- 2. stock: a princess (ideally species A), drones of B, and drones of
   --    A when the princess has to be converted first.
   ----------------------------------------------------------------------
-  local princessSlot = cell.fetch(A, "princess", 1)
+  local princessSlot = cell.fetch(A, "princess", 1, nameOf(A))
   if not princessSlot then
     princessSlot = cell.fetch(nil, "princess", 1)
     if not princessSlot then return fail("no princess available in the library") end
@@ -119,13 +123,13 @@ function breeder.run(cell, job)
   local princessIsA = genome.isPure(pst, A)
 
   if not princessIsA then
-    if not cell.fetch(A, "drone", supply) then
-      return fail("no drones of " .. A .. " to convert the princess with")
+    if not cell.fetch(A, "drone", supply, nameOf(A)) then
+      return fail("no drones of " .. nameOf(A) .. " to convert the princess with")
     end
   end
   if B ~= A or princessIsA then
-    if not cell.fetch(B, "drone", supply) then
-      return fail("no drones of " .. B .. " in the library")
+    if not cell.fetch(B, "drone", supply, nameOf(B)) then
+      return fail("no drones of " .. nameOf(B) .. " in the library")
     end
   end
 
@@ -136,7 +140,7 @@ function breeder.run(cell, job)
     local bestSlot, bestStack, bestScore = nil, nil, (minScore or 1) - 1
     for _, e in ipairs(cell.listBees()) do
       if genome.kind(e.stack) == "drone" then
-        local score = mateScore(e.stack, species)
+        local score = mateScore(e.stack, species, nameOf(species))
         if score > bestScore then bestSlot, bestStack, bestScore = e.slot, e.stack, score end
       end
     end
@@ -161,8 +165,8 @@ function breeder.run(cell, job)
     -- inventory, then the library; only then the next-best species.
     for _, species in ipairs(wantedList) do
       local invSlot, invStack = bestMate(species, 1)
-      local housingScore = inHousing and mateScore(inHousing, species) or 0
-      local invScore = invStack and mateScore(invStack, species) or 0
+      local housingScore = inHousing and mateScore(inHousing, species, nameOf(species)) or 0
+      local invScore = invStack and mateScore(invStack, species, nameOf(species)) or 0
       if housingScore > 0 and housingScore >= invScore then
         state.mateSpecies = species
         return true
@@ -171,7 +175,7 @@ function breeder.run(cell, job)
       -- do not hammer the controller for a species it just said it lacks
       local lastMiss = state.fetchMissed[species]
       if not lastMiss or state.generation - lastMiss >= 10 then
-        local slot = cell.fetch(species, "drone", supply)
+        local slot = cell.fetch(species, "drone", supply, nameOf(species))
         if slot then return swapIn(slot, species) end
         state.fetchMissed[species] = state.generation
       end
@@ -196,7 +200,8 @@ function breeder.run(cell, job)
           -- unanalyzed and not interesting to the prescreen: only parent-named
           -- drones get here.
           local sp = genome.displaySpecies(st)
-          if groups[sp] then table.insert(groups[sp], e) else cell.discard(e.slot) end
+          local uid = (sp == nameOf(A)) and A or ((sp == nameOf(B)) and B or nil)
+          if uid and groups[uid] then table.insert(groups[uid], e) else cell.discard(e.slot) end
         end
       end
     end
@@ -299,7 +304,7 @@ function breeder.run(cell, job)
         newPrincessSlot = e.slot
       elseif kind == "drone" and not before[e.slot] then
         local sp = genome.displaySpecies(st)
-        local interesting = (state.phase ~= "mutate") or (sp ~= A and sp ~= B)
+        local interesting = (state.phase ~= "mutate") or (sp ~= nameOf(A) and sp ~= nameOf(B))
         if interesting then st = analyzeSlot(e.slot) or st end
         if genome.analyzed(st) and genome.hasSpecies(st, target) then hitsThisGen = hitsThisGen + 1 end
         droneSummaries[#droneSummaries + 1] = summarize(st)
