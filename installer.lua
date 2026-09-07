@@ -12,6 +12,7 @@ local internet = require("internet")
 
 local repository = "v3rysp3d/GTNH-Auto-Bees"
 local archiveName = "AutoBees"
+local HOME = "/home"
 
 local releaseUrl = "https://github.com/" .. repository .. "/releases/latest/download/" .. archiveName .. ".tar"
 local rawBase = "https://raw.githubusercontent.com/" .. repository .. "/main/"
@@ -29,14 +30,19 @@ local files = {
   "src/util.lua", "src/json.lua", "src/conditions.lua", "src/catalog.lua", "src/climate.lua",
   "src/genome.lua", "src/graph.lua", "src/housing.lua", "src/ae2.lua", "src/net.lua", "src/http.lua",
   "src/discord.lua", "src/connect.lua", "src/settings.lua", "src/setup.lua", "src/needs.lua",
-  "src/breeder.lua", "src/survey.lua", "src/controller.lua", "src/cell.lua",
+  "src/breeder.lua", "src/survey.lua", "src/controller.lua", "src/cell.lua", "src/species_uids.lua",
 }
 
+local function fileSize(path)
+  if not filesystem.exists(path) then return 0 end
+  return filesystem.size(path) or 0
+end
+
 local function checkIsOsInstall()
-  local file = io.open("/home/.installer.test", "w")
+  local file = io.open(HOME .. "/.installer.test", "w")
   if file == nil then error("OpenOS is not installed") end
   file:close()
-  filesystem.remove("/home/.installer.test")
+  filesystem.remove(HOME .. "/.installer.test")
 end
 
 local function checkGithub()
@@ -51,46 +57,54 @@ local function checkGithub()
   end
 end
 
-local function downloadTarUtility()
-  if filesystem.exists("/bin/tar.lua") then return end
-  filesystem.makeDirectory("/usr/man")
-  shell.setWorkingDirectory("/usr/man")
-  shell.execute("wget -fq " .. tarManUrl)
-  shell.setWorkingDirectory("/bin")
-  shell.execute("wget -fq " .. tarBinUrl)
+--- Download url into an absolute path with wget. Returns bytes written.
+local function download(url, dest)
+  local dir = filesystem.path(dest)
+  if dir and dir ~= "" and not filesystem.exists(dir) then filesystem.makeDirectory(dir) end
+  if filesystem.exists(dest) then filesystem.remove(dest) end
+  shell.execute("wget -fq " .. url .. " " .. dest)
+  return fileSize(dest)
 end
 
-local function fileSize(path)
-  if not filesystem.exists(path) then return 0 end
-  return filesystem.size(path) or 0
+local function downloadTarUtility()
+  if filesystem.exists("/bin/tar.lua") then return true end
+  download(tarManUrl, "/usr/man/tar.man")
+  return download(tarBinUrl, "/bin/tar.lua") > 0
 end
 
 local function installFromRelease()
-  shell.execute("wget -fq " .. releaseUrl .. " program.tar")
-  if fileSize("program.tar") < 1000 then
-    if filesystem.exists("program.tar") then filesystem.remove("program.tar") end
-    return false
+  local tarPath = HOME .. "/program.tar"
+  local size = download(releaseUrl, tarPath)
+  if size < 1000 then
+    if filesystem.exists(tarPath) then filesystem.remove(tarPath) end
+    return false, "release download returned " .. size .. " bytes"
   end
-  downloadTarUtility()
-  shell.execute("tar -xf program.tar")
-  filesystem.remove("program.tar")
+  if not downloadTarUtility() then
+    filesystem.remove(tarPath)
+    return false, "could not download the tar utility"
+  end
+  shell.setWorkingDirectory(HOME)
+  shell.execute("tar -xf " .. tarPath)
+  filesystem.remove(tarPath)
+  if fileSize(HOME .. "/main.lua") == 0 then return false, "archive extracted nothing" end
   return true
 end
 
 local function installFromMain()
+  local failed = 0
   for _, rel in ipairs(files) do
-    local dir = filesystem.path(rel)
-    if dir and dir ~= "" and not filesystem.exists("/home/" .. dir) then filesystem.makeDirectory("/home/" .. dir) end
-    shell.execute("wget -fq " .. rawBase .. rel .. " " .. rel)
-    term.write((fileSize(rel) > 0 and "  ok   " or "  FAIL ") .. rel .. "\n")
+    local size = download(rawBase .. rel, HOME .. "/" .. rel)
+    term.write((size > 0 and "  ok   " or "  FAIL ") .. rel .. "\n")
+    if size == 0 then failed = failed + 1 end
   end
+  return failed == 0, failed
 end
 
 local function makeAutoRun()
   term.write("\nStart the program automatically on boot [y/n]\n===>")
   local userInput = io.read() or "n"
   if string.lower(userInput) == "y" then
-    local file = assert(io.open("/home/.shrc", "w"))
+    local file = assert(io.open(HOME .. "/.shrc", "w"))
     file:write("main")
     file:close()
     term.write("Auto run created\n")
@@ -105,29 +119,33 @@ local function main()
 
   term.clear()
   term.write("GTNH Auto Bees installer\n\n")
-  shell.setWorkingDirectory("/home")
+  shell.setWorkingDirectory(HOME)
 
-  local hadConfig = filesystem.exists("/home/config.lua")
-  if hadConfig then shell.execute("mv config.lua config.prev.lua") end
+  local hadConfig = filesystem.exists(HOME .. "/config.lua")
+  if hadConfig then filesystem.rename(HOME .. "/config.lua", HOME .. "/config.prev.lua") end
 
-  term.write("Downloading latest release...\n")
-  if installFromRelease() then
+  term.write("Downloading the latest release archive...\n")
+  local ok, why = installFromRelease()
+  if ok then
     term.write("Installed from the release archive\n")
   else
-    term.write("No release archive found, fetching files from the main branch\n")
-    installFromMain()
+    term.write("No usable release archive (" .. tostring(why) .. "), fetching files from the main branch\n")
+    local allOk, failed = installFromMain()
+    if not allOk then
+      term.write(tostring(failed) .. " file(s) failed to download. Check the internet card and try again.\n")
+    end
   end
 
   if hadConfig then
     -- keep the user's configuration, ship the fresh template next to it
-    shell.execute("mv config.lua config.new.lua")
-    shell.execute("mv config.prev.lua config.lua")
+    if filesystem.exists(HOME .. "/config.lua") then filesystem.rename(HOME .. "/config.lua", HOME .. "/config.new.lua") end
+    filesystem.rename(HOME .. "/config.prev.lua", HOME .. "/config.lua")
     term.write("Kept your config.lua; the new template is config.new.lua\n")
   end
 
   makeAutoRun()
-  term.write("\nDone. Edit config.lua, then run: main\n")
-  term.write("(on a robot `main` starts the cell worker automatically)\n")
+  term.write("\nDone. Edit config.lua if you like, then run: main\n")
+  term.write("(the setup guide runs on first start; on a robot `main` starts the cell worker)\n")
 end
 
 main()
