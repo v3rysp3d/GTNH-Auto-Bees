@@ -842,7 +842,7 @@ function controller:new(cfg, logger)
   function obj:queueLines()
     local out = {}
     for _, r in ipairs(self.S.requests) do
-      if r.status ~= "done" then
+      if r.status ~= "done" and r.status ~= "cancelled" then
         out[#out + 1] = string.format("%s %s -> %s  by %s", r.id, r.status, self:label(r.target), r.by or "-")
         for _, jid in ipairs(r.jobs) do
           local j = self.S.jobs[jid]
@@ -964,7 +964,7 @@ function controller:new(cfg, logger)
         "needs <number|name>    autocraft / station needs for that chain",
         "find <text>            catalog numbers (shared names show their mod)",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
-        "status | queue | cells | library [text] | cancel <job|request> | scan | survey",
+        "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
     elseif verb == "settings" then
@@ -1104,6 +1104,35 @@ function controller:new(cfg, logger)
         end
       end
       return "no such job/request"
+    elseif verb == "retry" then
+      local id = w[2]
+      if not id then return "usage: retry <job|request>" end
+      local revived = 0
+      local function revive(j)
+        if j.status == "failed" then
+          j.status, j.error, j.attempts, j.cell = "pending", nil, 0, nil
+          revived = revived + 1
+        end
+      end
+      local job = self.S.jobs[id]
+      if job then
+        revive(job)
+        local req = self:requestOf(job)
+        if req and req.status == "blocked" then req.status = "active" end
+      else
+        local found
+        for _, r in ipairs(self.S.requests) do
+          if r.id == id then
+            found = r
+            for _, jid in ipairs(r.jobs) do if self.S.jobs[jid] then revive(self.S.jobs[jid]) end end
+            if r.status == "blocked" or r.status == "cancelled" then r.status = "active" end
+          end
+        end
+        if not found then return "no such job/request" end
+      end
+      self:saveState()
+      self:dispatch()
+      return string.format("%d job(s) back in the queue", revived)
     elseif verb == "scan" then
       self:scanLibrary(true)
       return string.format("library: %d species with drones, %d princesses", util.count(self:ownedSet()), self:princessPool())

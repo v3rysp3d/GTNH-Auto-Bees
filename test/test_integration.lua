@@ -168,6 +168,19 @@ T.run("integration: unanalyzed hive bees count as stock", function()
   T.ok(ctl:princessPool() >= 1, "unanalyzed princess in the pool")
 end)
 
+T.run("integration: retry revives a blocked request", function()
+  local res = ctl:command("breed Common keep 1", "test")
+  local req = ctl.S.requests[#ctl.S.requests]
+  local jid = req.jobs[1]
+  ctl.S.jobs[jid].status = "failed"
+  ctl:updateRequestStatus(req)
+  T.eq(req.status, "blocked", "a failed job blocks its request")
+  T.ok(ctl:command("retry " .. req.id, "test"):find("1 job(s) back", 1, true), "retry reports the revived job")
+  T.eq(req.status, "active", "request active again")
+  T.ok(ctl.S.jobs[jid].status ~= "failed", "job no longer failed")
+  ctl:command("cancel " .. req.id, "test")
+end)
+
 T.run("integration: status and settings commands", function()
   T.ok(ctl:command("status", "test"):match("requests:"), "status renders")
   T.ok(ctl:command("queue", "test"):match("queue empty"), "queue empty after completion")
