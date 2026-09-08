@@ -66,7 +66,7 @@ local config = {
 
     chanceWeight = 0.1,        -- planner: cost per (100 / mutation chance)
     foundationCostBase = 2,    -- planner: extra cost per foundation block
-    libraryScanInterval = 60,  -- seconds between ME library scans
+    libraryScanInterval = 300, -- seconds between ME library scans (each scan reads every bee in the network)
 
     effectBlacklist = {},      -- species names never bred at home, e.g. { ["Radioactive"] = true }
 

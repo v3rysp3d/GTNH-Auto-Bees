@@ -27,7 +27,7 @@ end
 
 --- me: network proxy; db: database proxy (optional, needed for stocking)
 function ae2.new(me, db)
-  return setmetatable({ me = me, db = db, dbSize = db and 9 or 0 }, ae2)
+  return setmetatable({ me = me, db = db, dbSize = db and 9 or 0, slowCalls = {} }, ae2)
 end
 
 function ae2:setDatabase(db, size)
@@ -35,8 +35,23 @@ function ae2:setDatabase(db, size)
   self.dbSize = size or 9
 end
 
+--- Every ME call converts the whole network's item list on the server, so on
+--- a big base a single call can take seconds. Calls slower than `slowAfter`
+--- seconds are recorded in `slowCalls` for the log.
+ae2.slowAfter = 2
+
+function ae2:timed(what, fn, ...)
+  local started = util.now()
+  local ok, res = pcall(fn, ...)
+  local took = util.now() - started
+  if took >= ae2.slowAfter then
+    self.slowCalls[#self.slowCalls + 1] = string.format("%s took %.1fs", what, took)
+  end
+  return ok, res
+end
+
 function ae2:items(filter)
-  local ok, res = pcall(self.me.getItemsInNetwork, filter)
+  local ok, res = self:timed("getItemsInNetwork " .. util.serialize(filter or {}), self.me.getItemsInNetwork, filter)
   if not ok or type(res) ~= "table" then return {} end
   return res
 end
@@ -87,10 +102,13 @@ function ae2:stockIntoInterface(iface, slot, filter, count, dbSlot)
   if not self.db then return false, "no database upgrade configured" end
   dbSlot = dbSlot or 1
   pcall(self.db.clear, dbSlot)
-  local ok, res = pcall(self.me.store, filter, self.db.address, dbSlot, 1)
+  local ok, res = self:timed("store " .. util.serialize(filter), self.me.store, filter, self.db.address, dbSlot, 1)
   if not ok then return false, "store failed: " .. tostring(res) end
   local okGet, entry = pcall(self.db.get, dbSlot)
   if not okGet or entry == nil then return false, "nothing in the network matches " .. util.serialize(filter) end
+  if filter.label and entry.label ~= filter.label then
+    return false, "database holds " .. tostring(entry.label) .. " instead of " .. filter.label
+  end
   local okCfg, resCfg = pcall(iface.setInterfaceConfiguration, slot, self.db.address, dbSlot, count or 1)
   if not okCfg or resCfg == false then return false, "setInterfaceConfiguration failed: " .. tostring(resCfg) end
   return true, entry

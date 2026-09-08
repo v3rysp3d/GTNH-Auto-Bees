@@ -965,7 +965,7 @@ function controller:new(cfg, logger)
         "find <text>            catalog numbers (shared names show their mod)",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
-        "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
+        "settings [show|test|interfaces|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
     elseif verb == "settings" then
       return self:settingsCommand(w)
@@ -1157,6 +1157,29 @@ function controller:new(cfg, logger)
       return table.concat(settings.describe(self.cfg), "\n")
     elseif sub == "test" then
       return table.concat(connect.report(self.internet, self.cfg.discord, self.cfg.host), "\n")
+    elseif sub == "interfaces" then
+      -- put one honey drop into slot 3 of each configured interface for 30 s
+      -- so the player can see in game which block is which
+      if not self.me or not self.me.db then return "no ME network or database" end
+      local out = {}
+      for name, c in pairs(self.cfg.cells or {}) do
+        for _, which in ipairs({ "mainInterface", "beeInterface" }) do
+          local iface = ifaceProxy(c[which])
+          if not iface then
+            out[#out + 1] = string.format("%s %s: address %s not reachable", name, which, tostring(c[which]))
+          else
+            local ok, err = self.me:stockIntoInterface(iface, 3, { label = self.cfg.honeyLabel or "Honey Drop" }, which == "mainInterface" and 1 or 2, 1)
+            out[#out + 1] = string.format("%s %s (%s): %s", name, which, tostring(c[which]):sub(1, 8),
+              ok and ((which == "mainInterface" and "1" or "2") .. " Honey Drop in slot 3 for 30 s") or ("failed: " .. tostring(err)))
+            if ok then
+              self.interfaceProbe = self.interfaceProbe or {}
+              self.interfaceProbe[#self.interfaceProbe + 1] = { iface = iface, until_ = util.now() + 30 }
+            end
+          end
+        end
+      end
+      out[#out + 1] = "Open both interfaces: the one showing 2 drops must be the one BELOW the robot, 1 drop the one ABOVE."
+      return table.concat(out, "\n")
     elseif sub == "host" then
       if not w[3] then return "usage: settings host <url>" end
       self:setSetting("host.url", w[3])
@@ -1320,6 +1343,19 @@ function controller:new(cfg, logger)
     self:hostTick()
     for _, c in pairs(self.cells) do
       if c.status ~= "offline" and util.now() - c.lastSeen > 120 then c.status = "offline" end
+    end
+    if self.interfaceProbe then
+      for i = #self.interfaceProbe, 1, -1 do
+        local p = self.interfaceProbe[i]
+        if util.now() >= p.until_ then
+          if self.me then self.me:clearInterfaceSlot(p.iface, 3) end
+          table.remove(self.interfaceProbe, i)
+        end
+      end
+    end
+    if self.me and #self.me.slowCalls > 0 then
+      for _, line in ipairs(self.me.slowCalls) do self:warn("slow ME call: %s", line) end
+      self.me.slowCalls = {}
     end
   end
 
