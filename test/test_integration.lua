@@ -116,6 +116,12 @@ end)
 T.run("integration: a missing foundation block parks the job until it appears", function()
   local res = ctl:command("breed Noble keep 2", "test")
   T.ok(res:match("queued"), "Noble queued: " .. res)
+  T.ok(res:find("Block of Gold: MISSING, no pattern", 1, true) and res:find("Cultivated + Common -> Noble", 1, true),
+    "breed reply lists only this chain's block with its status: " .. res)
+  T.ok(not res:find("Block of Copper", 1, true), "blocks of other chains are not listed")
+  local needsRes = ctl:command("needs Noble", "test")
+  T.ok(needsRes:find("required for [", 1, true) and needsRes:find("] Noble:", 1, true) and needsRes:find("Block of Gold: MISSING", 1, true), "needs shows the chain's block: " .. needsRes)
+  T.ok(ctl:command("needs Cultivated", "test"):find("nothing beyond bees and honey", 1, true), "an owned species needs nothing")
   local req = ctl.S.requests[#ctl.S.requests]
   local job = ctl.S.jobs[req.jobs[#req.jobs]]
   -- a stockpile job for Cultivated runs first; then Noble hits the missing block

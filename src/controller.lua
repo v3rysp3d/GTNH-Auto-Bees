@@ -287,6 +287,17 @@ function controller:new(cfg, logger)
     return cost
   end
 
+  --- Context for needs reports: stock and pattern lookups, station availability, labels.
+  function obj:needsCtx()
+    local ctx = { base = { temp = 0.8, hum = 0.4 }, station = function(k, n) return self:stationAvailable(k, n) end,
+      label = function(u) return self:nameOf(u) end }
+    if self.me then
+      ctx.haveCount = function(label) return self.me:countLabel(label) end
+      ctx.craftable = function(label) return self.me:hasPattern(label) end
+    end
+    return ctx
+  end
+
   function obj:planFor(uid)
     return self.graph:plan(uid, self:ownedSet(), {
       chanceWeight = self.cfg.chanceWeight or 0.1,
@@ -962,8 +973,21 @@ function controller:new(cfg, logger)
         local req, info = self:addRequest(e.uid, { keep = tonumber(cmd.opts.keep), extra = extra, keepAll = tonumber(cmd.opts.all) }, who)
         if not req then return "cannot plan " .. self:label(e.uid) .. ": " .. tostring(info) end
         self:notify("%s queued %s: %d job(s)", who or "gui", self:label(e.uid), #req.jobs)
+        local out = { string.format("queued %s as %s with %d job(s)", self:label(e.uid), req.id, #req.jobs) }
+        -- only what this chain needs, with its status
+        local required = needs.summary(needs.forSteps(info.steps, self:needsCtx()), false)
+        if #required > 0 then
+          out[#out + 1] = "required for this chain:"
+          for _, l in ipairs(required) do out[#out + 1] = "  " .. l end
+          local missing = {}
+          for _, l in ipairs(required) do if l:find("MISSING", 1, true) then missing[#missing + 1] = l end end
+          if #missing > 0 then
+            self:card("needs", string.format("%s needs %d thing(s) you must provide", req.id, #missing),
+              util.map(missing, function(l) return { (l:match("^(.-):") or l), (l:match("^.-:%s*(.*)$") or l) } end), nil, e.uid)
+          end
+        end
         self:dispatch()
-        return string.format("queued %s as %s with %d job(s)", self:label(e.uid), req.id, #req.jobs)
+        return table.concat(out, "\n")
       end
       self:scanLibrary()
       local plan, why, blockers = self:planFor(e.uid)
@@ -983,12 +1007,10 @@ function controller:new(cfg, logger)
         if #plan.steps == 0 then out[#out + 1] = "already in the library" end
         return table.concat(out, "\n")
       end
-      local ctx = { base = { temp = 0.8, hum = 0.4 }, station = function(k, n) return self:stationAvailable(k, n) end }
-      if self.me then
-        ctx.haveCount = function(label) return self.me:countLabel(label) end
-        ctx.craftable = function(label) return self.me:hasPattern(label) end
-      end
-      return table.concat(needs.lines(needs.forSteps(plan.steps, ctx), false), "\n")
+      local lines = needs.summary(needs.forSteps(plan.steps, self:needsCtx()), false)
+      if #lines == 0 then return self:label(e.uid) .. ": nothing beyond bees and honey" end
+      table.insert(lines, 1, "required for " .. self:label(e.uid) .. ":")
+      return table.concat(lines, "\n")
     elseif verb == "hives" then
       self:scanLibrary()
       local out = {}

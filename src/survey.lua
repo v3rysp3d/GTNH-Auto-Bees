@@ -168,8 +168,7 @@ function survey.run(dataDir, say, opts)
     dataDir, util.count(rep.foundation), util.count(rep.stations)))
   local actions = needs.actionLines(rep)
   if #actions > 0 then
-    say(string.format("%d things to provide eventually, first few:", #actions))
-    for i = 1, math.min(#actions, 10) do say("  " .. actions[i]) end
+    say(string.format("%d blocks or stations have no source yet (full list in needs_global.txt; each breed shows only its own)", #actions))
   end
 
   conditions.keepRaw = false

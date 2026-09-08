@@ -58,14 +58,15 @@ local function addCond(rep, c, ctx, stepLabel)
   end
 end
 
---- steps: plan.steps from graph:plan()
+--- steps: plan.steps from graph:plan(); ctx.label(uid) renders species names
 function needs.forSteps(steps, ctx)
   ctx = ctx or {}
   ctx.base = ctx.base or { temp = 0.8, hum = 0.4 }
+  local name = ctx.label or function(u) return u end
   local rep = newReport()
   for _, s in ipairs(steps or {}) do
     rep.steps = rep.steps + 1
-    local label = string.format("%s+%s->%s", s.a, s.b, s.result)
+    local label = string.format("%s + %s -> %s", name(s.a), name(s.b), name(s.result))
     for _, c in ipairs(s.conds or {}) do addCond(rep, c, ctx, label) end
   end
   return rep
@@ -75,13 +76,47 @@ end
 function needs.global(g, ctx)
   ctx = ctx or {}
   ctx.base = ctx.base or { temp = 0.8, hum = 0.4 }
+  local name = ctx.label or function(u) return g:nameOf(u) end
   local rep = newReport()
   for _, m in ipairs(g.mutations) do
     rep.steps = rep.steps + 1
-    local label = string.format("%s+%s->%s", m.a, m.b, m.result)
+    local label = string.format("%s + %s -> %s", name(m.a), name(m.b), name(m.result))
     for _, c in ipairs(m.conds or {}) do addCond(rep, c, ctx, label) end
   end
   return rep
+end
+
+--- One line per required thing, nothing else: blocks, upgrades, stations.
+--- `missingOnly` drops what is already in stock.
+function needs.summary(rep, missingOnly)
+  local out = {}
+  local list = {}
+  for _, e in pairs(rep.foundation) do list[#list + 1] = e end
+  table.sort(list, function(a, b) return a.label < b.label end)
+  for _, e in ipairs(list) do
+    local stocked = e.have and e.have > 0
+    if not (missingOnly and stocked) then
+      local status
+      if stocked then status = "in stock"
+      elseif e.craftable then status = "will be crafted"
+      elseif e.have ~= nil or e.craftable ~= nil then status = "MISSING, no pattern"
+      else status = "needed" end
+      out[#out + 1] = string.format("%s: %s  (%s)", e.label, status, table.concat(e.steps, "; "))
+    end
+  end
+  for _, k in ipairs(util.sortedKeys(rep.upgrades)) do
+    out[#out + 1] = string.format("%s upgrade x%d for the Industrial Apiary", k, rep.upgrades[k])
+  end
+  local st = {}
+  for _, e in pairs(rep.stations) do st[#st + 1] = e end
+  table.sort(st, function(a, b) return a.name < b.name end)
+  for _, e in ipairs(st) do
+    if not (missingOnly and e.available) then
+      out[#out + 1] = string.format("%s station %s: %s", e.kind, e.name, e.available and "available" or "MISSING")
+    end
+  end
+  for _, l in ipairs(rep.unknown) do out[#out + 1] = "unknown condition: " .. l end
+  return out
 end
 
 local function sortedValues(t, key)
