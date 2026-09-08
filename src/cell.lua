@@ -124,6 +124,21 @@ function cell:new(cfg, logger)
   end
 
   ----------------------------------------------------------------------
+  -- which way is the housing?
+  --
+  -- The Beekeeper Upgrade takes WORLD directions (0 down, 1 up, 2 north,
+  -- 3 south, 4 west, 5 east), not robot-relative ones, so the housing's
+  -- compass side is probed once and remembered. The Inventory Controller
+  -- and the robot's own moves are relative, so the body still has to face
+  -- the housing for those.
+  ----------------------------------------------------------------------
+  local housingSide = tonumber(cfg.housingSide)
+
+  local function beeSide()
+    return housingSide or sides.front
+  end
+
+  ----------------------------------------------------------------------
   -- movement (vertical column)
   ----------------------------------------------------------------------
   local level = 0
@@ -318,7 +333,7 @@ function cell:new(cfg, logger)
   function api.insertQueen(slot)
     goTo(0)
     robot.select(slot)
-    local ok, err = beekeeper.swapQueen(sides.front)
+    local ok, err = beekeeper.swapQueen(beeSide())
     if not ok then return false, err or "swapQueen refused" end
     return true
   end
@@ -326,7 +341,7 @@ function cell:new(cfg, logger)
   function api.insertDrone(slot)
     goTo(0)
     robot.select(slot)
-    local ok, err = beekeeper.swapDrone(sides.front)
+    local ok, err = beekeeper.swapDrone(beeSide())
     if not ok then return false, err or "swapDrone refused" end
     return true
   end
@@ -343,7 +358,7 @@ function cell:new(cfg, logger)
     local slot = firstEmpty()
     if not slot then return nil end
     robot.select(slot)
-    local ok = beekeeper.swapDrone(sides.front)
+    local ok = beekeeper.swapDrone(beeSide())
     if not ok or robot.count(slot) == 0 then return nil end
     return slot
   end
@@ -387,7 +402,7 @@ function cell:new(cfg, logger)
       if q == nil then return "done" end
       if cancelRequested then return "cancelled" end
       if hs.reportsProgress then
-        local okW, canWork = pcall(beekeeper.canWork, sides.front)
+        local okW, canWork = pcall(beekeeper.canWork, beeSide())
         if okW and canWork == false then
           stuckSince = stuckSince or util.now()
           if util.now() - stuckSince > 30 then return "timeout", "queen cannot work (flowers, climate, light?)" end
@@ -489,7 +504,7 @@ function cell:new(cfg, logger)
     goTo(0)
     local list, misses = {}, 0
     for i = 1, cfg.maxUpgrades do
-      local ok, st = pcall(beekeeper.getIndustrialUpgrade, sides.front, i)
+      local ok, st = pcall(beekeeper.getIndustrialUpgrade, beeSide(), i)
       if ok and type(st) == "table" then
         list[i] = { key = upgradeKeyOf(st), count = st.size or 1, label = st.label }
         misses = 0
@@ -505,7 +520,7 @@ function cell:new(cfg, logger)
     goTo(0)
     local slot = firstEmpty() or cfg.slots.scratch
     robot.select(slot)
-    local ok, moved = pcall(beekeeper.removeIndustrialUpgrade, sides.front, index, count)
+    local ok, moved = pcall(beekeeper.removeIndustrialUpgrade, beeSide(), index, count)
     if ok and (tonumber(moved) or 0) > 0 then dumpSlot(slot) return true end
     return false
   end
@@ -532,7 +547,7 @@ function cell:new(cfg, logger)
         end
         goTo(0)
         robot.select(slot)
-        local ok, added = pcall(beekeeper.addIndustrialUpgrade, sides.front, needCount)
+        local ok, added = pcall(beekeeper.addIndustrialUpgrade, beeSide(), needCount)
         if not ok or (tonumber(added) or 0) < needCount then
           for i, u in pairs(installedUpgrades()) do
             if u.key and not cfg.keepUpgrades[u.key] and not cfg.climateKeys[u.key] then
@@ -541,7 +556,7 @@ function cell:new(cfg, logger)
             end
           end
           robot.select(slot)
-          ok, added = pcall(beekeeper.addIndustrialUpgrade, sides.front, needCount)
+          ok, added = pcall(beekeeper.addIndustrialUpgrade, beeSide(), needCount)
           if not ok or (tonumber(added) or 0) < needCount then
             return false, "could not install " .. key .. " (" .. tostring(added) .. ")"
           end
@@ -581,7 +596,7 @@ function cell:new(cfg, logger)
     local slot = firstEmpty()
     if slot then
       robot.select(slot)
-      beekeeper.swapQueen(sides.front)
+      beekeeper.swapQueen(beeSide())
     end
     api.takeDrone()
     api.collect()
@@ -603,24 +618,36 @@ function cell:new(cfg, logger)
   ----------------------------------------------------------------------
   -- main loop
   ----------------------------------------------------------------------
-  --- Is there a bee housing on that side of the robot?
+  --- Is there a bee housing on that world side of the robot?
   local function housingAt(side)
     local ok, res, msg = pcall(beekeeper.canWork, side)
     if not ok then return false end
     return not (res == false and tostring(msg or ""):find("No bee housing", 1, true))
   end
 
-  --- Turn until the housing is in front (it may be placed facing any way).
+  --- Find the housing's compass side, then turn the body to face it (the
+  --- housing is the only sizeable inventory next to the parking spot).
   local function orient()
     goTo(0)
+    if not housingSide then
+      for _, side in ipairs({ 2, 3, 4, 5 }) do
+        if housingAt(side) then housingSide = side break end
+      end
+    end
+    if not housingSide then
+      say("WARNING: no bee housing next to the robot at parking level; check the placement")
+      return false
+    end
+    local names = { [2] = "north", [3] = "south", [4] = "west", [5] = "east" }
     for turn = 0, 3 do
-      if housingAt(sides.front) then
-        if turn > 0 then say("turned %d time(s) to face the housing", turn) end
+      local size = invctl.getInventorySize(sides.front)
+      if size and size >= 4 then
+        say("housing is to the %s%s", names[housingSide] or tostring(housingSide), turn > 0 and (", turned " .. turn .. " time(s) to face it") or "")
         return true
       end
       robot.turnLeft()
     end
-    say("WARNING: no bee housing next to the robot at parking level; check the placement")
+    say("WARNING: housing found to the %s but nothing with an inventory in front after turning; check the placement", names[housingSide] or "?")
     return false
   end
 

@@ -131,6 +131,7 @@ local config = {
     maxUpgrades = 8,
 
     statePath = "/home/cell.state",
+    -- housingSide = 3,            -- world side of the housing (2 north, 3 south, 4 west, 5 east); found automatically when unset
   },
 }
 

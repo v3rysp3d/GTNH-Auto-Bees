@@ -359,6 +359,10 @@ function fake.install(opts)
 
   local invctl = { type = "inventory_controller", address = "invctl-0" }
   local function sideTarget(side)
+    -- relative sides: the housing is in front only while the body faces it (facing 0);
+    -- facing 2 has the charger (a 1-slot inventory) in front
+    if world.level == 0 and side == sides.front and world.facing == 2 then return "charger" end
+    if world.level == 0 and side == sides.front and world.facing ~= 0 then return nil end
     if world.level == 0 and side == sides.front then return "housing" end
     if world.level == 1 and side == sides.front then return "chest" end
     if world.level == 1 and side == sides.up then return "main" end
@@ -370,6 +374,7 @@ function fake.install(opts)
     local t = sideTarget(side)
     if t == "chest" then return world.chestSize end
     if t == "housing" then return 16 end
+    if t == "charger" then return 1 end
     if t then return 9 end
     return nil
   end
@@ -429,14 +434,14 @@ function fake.install(opts)
 
   local beekeeper = { type = "beekeeper", address = "beekeeper-0" }
   function beekeeper.swapQueen(side)
-    if world.level ~= 0 or side ~= sides.front then return false, "no housing" end
+    if world.level ~= 0 or side ~= 3 then return false, "no housing" end
     local mine = world.inv[world.selected]
     world.inv[world.selected], housing.queen = housing.queen, mine
     if housing.queen and not housing.queen._kind then housing.queen._kind = "princess" end
     return true
   end
   function beekeeper.swapDrone(side)
-    if world.level ~= 0 or side ~= sides.front then return false, "no housing" end
+    if world.level ~= 0 or side ~= 3 then return false, "no housing" end
     local mine = world.inv[world.selected]
     world.inv[world.selected], housing.drone = housing.drone, mine
     return true
@@ -478,9 +483,11 @@ function fake.install(opts)
     if u.size <= 0 then housing.upgrades[i] = nil end
     return n
   end
-  -- the housing sits on the robot's front only when it faces it (facing 0)
+  -- Beekeeper calls take world sides: the housing is to the south (3) of the
+  -- parking spot whatever way the robot faces
+  local HOUSING_SIDE = 3
   function beekeeper.canWork(side)
-    if world.level == 0 and side == sides.front and world.facing == 0 then return true end
+    if world.level == 0 and side == HOUSING_SIDE then return true end
     return false, "No bee housing found"
   end
   function beekeeper.getBeeProgress() return 0 end
