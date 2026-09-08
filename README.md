@@ -80,6 +80,8 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
 | `cancel j12` / `cancel r3` | stop a job or a whole request |
 | `scan`, `survey` | rescan the ME library, re-read the mutation graph |
+| `pair` | mark each ME interface in turn and ask the robot which one it can reach, then save the answer |
+| `diag` | report what the robot can reach above, below and in front of itself |
 | `settings` | show connection settings; `settings test` probes them; `settings discord webhook <url>`, `settings discord bot <token> <channel>`, `settings host <url>` change them |
 
 <a id="installation"></a>
@@ -233,6 +235,26 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 > [!NOTE]
 > Remote stations for dimension and biome-ID conditions (an Apiary, Transposer, Adapter, EnderStorage chest pair
 > and an OpenComputers P2P tunnel on a quantum-linked ME network) are planned but not supported by the code yet.
+
+### When a fetch never arrives
+
+The robot waits at an ME Interface slot that the network is supposed to fill. If the log says a slot stayed
+empty, run `pair` on the controller with the robot idle. It stocks two honey drops into each interface in turn
+and asks the robot which one it can see, then saves the addresses itself.
+
+Both interfaces being on the same ME network does not make them interchangeable. Each is a separate block with
+its own nine slots, and the robot can only reach the one it stands next to, so the addresses have to match the
+blocks. `pair` reports which of these is wrong:
+
+| Report | Meaning |
+| :---- | :---- |
+| `bee interface corrected to ...` | the addresses were swapped and are now saved the right way round |
+| `nothing with an inventory below the robot` | the bee interface is missing or the column is off by one block |
+| `an inventory sits below the robot but the network never put the marker in it` | no Adapter touches that interface, it is on another ME network, or it has no channel or power |
+| `did not answer the probe` | the robot is not running `main` |
+
+`diag` is the smaller version: it reports what the robot can reach above, below and in front without touching
+the ME network at all. An ME Interface reports nine slots, the apiary more, air reports none.
 
 <a id="configuration"></a>
 

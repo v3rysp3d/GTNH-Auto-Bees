@@ -44,6 +44,7 @@ function cell:new(cfg, logger)
   local controller = nil
   local cancelRequested = false
   local pendingJob = nil
+  local pendingProbe = nil
   local replies = {}
   local state = util.loadTable(cfg.statePath, { foundation = nil, job = nil })
   local reqCounter = 0
@@ -83,6 +84,9 @@ function cell:new(cfg, logger)
       link:send(msg.remote, "pong", { name = cfg.name, job = state.job and state.job.id or nil })
     elseif msg.type == "ready" or msg.type == "fail" then
       if msg.payload.reqId then replies[msg.payload.reqId] = msg end
+    elseif msg.type == "probe" then
+      -- answered from step() when the robot is idle; moving mid-job is unsafe
+      pendingProbe = { remote = msg.remote, payload = msg.payload or {} }
     elseif msg.type == "whois" then
       link:send(msg.remote, "hello", { name = cfg.name, housing = cfg.housing, job = state.job and state.job.id or nil })
     end
@@ -242,8 +246,42 @@ function cell:new(cfg, logger)
       if ok and type(st) == "table" then return st end
       pump(0.5)
     end
-    say("interface slot %d stayed empty while waiting for %s: is that interface the right one, and is the item in the ME network?", slot, tostring(what))
+    say("interface slot %d stayed empty while waiting for %s; run 'pair' on the controller to check which interface is which", slot, tostring(what))
     return nil
+  end
+
+  ----------------------------------------------------------------------
+  -- probe: report what the robot can actually reach.
+  --
+  -- The controller knows the ME interface addresses but cannot see inside
+  -- the blocks; the robot can see the blocks but not their addresses. A
+  -- probe puts the two halves together, which is how `pair` and `diag`
+  -- work out which interface is which.
+  ----------------------------------------------------------------------
+  local function runProbe(p)
+    local where = p.where or "down"
+    local lvl = (where == "down" and -1) or (where == "up" and 1) or 0
+    local side = (where == "down" and sides.down) or (where == "up" and sides.up) or sides.front
+    local res = { reqId = p.reqId, cell = cfg.name, where = where }
+    local okMove, whyMove = pcall(goTo, lvl)
+    if not okMove then
+      res.error = tostring(whyMove)
+      return res
+    end
+    res.size = tonumber(invctl.getInventorySize(side)) or 0
+    local filled = {}
+    for slot = 1, math.min(res.size, 27) do
+      local okS, st = pcall(invctl.getStackInSlot, side, slot)
+      if okS and type(st) == "table" then
+        filled[#filled + 1] = string.format("%d=%s x%d", slot, tostring(st.label), math.floor(st.size or 1))
+        if p.slot and slot == p.slot then
+          res.label = st.label
+          res.count = math.floor(st.size or 1)
+        end
+      end
+    end
+    res.filled = table.concat(filled, ", ")
+    return res
   end
 
   local function ensureHoney()
@@ -698,6 +736,15 @@ function cell:new(cfg, logger)
       self.lastIdle = util.now()
     end
     pump(1)
+    if pendingProbe then
+      local req = pendingProbe
+      pendingProbe = nil
+      local ok, res = pcall(runProbe, req.payload)
+      if not ok then res = { reqId = req.payload.reqId, cell = cfg.name, error = tostring(res) } end
+      say("probe %s: size=%s %s", tostring(req.payload.where or "down"), tostring(res.size),
+        res.error and ("error " .. res.error) or (res.filled ~= "" and res.filled or "empty"))
+      link:send(req.remote, "probeResult", res)
+    end
     if not pendingJob then return false end
 
     local job = pendingJob

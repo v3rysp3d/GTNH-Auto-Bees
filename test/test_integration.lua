@@ -245,3 +245,65 @@ T.run("integration: webhook cards, status card, host push", function()
     end
   end
 end)
+
+-- Interface pairing -----------------------------------------------------
+-- The failure this reproduces: both interfaces are on one ME network but the
+-- controller has their addresses the wrong way round, so the network stocks
+-- the interface the robot is not standing next to and the robot waits at an
+-- empty slot forever.
+T.run("integration: pairing finds the swapped interfaces and saves the fix", function()
+  local settingsLib = require("src.settings")
+  settingsLib.path = dataDir .. "/settings.dat"
+  os.remove(settingsLib.path)
+  ctl.settingsData = settingsLib.load()
+
+  -- leave the cell idle: an earlier test dispatched a job that never ran
+  if ctl.cells.cell1.job then ctl:command("cancel " .. ctl.cells.cell1.job, "test") end
+  cell:step()
+  ctl:tick()
+  ctl.cells.cell1.job = nil
+
+  ctl.cfg.cells.cell1.beeInterface = "iface-main"   -- swapped on purpose
+  ctl.cfg.cells.cell1.mainInterface = "iface-bees"
+
+  env.side = "controller"
+  local started = ctl:command("pair", "test")
+  T.ok(started:find("pairing cell1", 1, true), "pair starts: " .. started)
+
+  for _ = 1, 60 do
+    if not ctl.pairing then break end
+    env.clock = env.clock + 2
+    env.side = "controller" ctl:tick()
+    env.side = "robot" cell:step()
+    env.side = "controller" ctl:tick()
+  end
+  env.side = "robot"
+
+  T.ok(ctl.pairing == nil, "pairing finished")
+  T.eq(ctl.cfg.cells.cell1.beeInterface, "iface-bees", "bee interface corrected to the one below the robot")
+  T.eq(ctl.cfg.cells.cell1.mainInterface, "iface-main", "main interface corrected to the one above the robot")
+  local saved = util.loadTable(settingsLib.path, {})
+  T.eq(((saved.controller or {}).cells or {}).cell1.beeInterface, "iface-bees", "the fix is written to settings.dat")
+  T.ok(env.beeIface.config[5] == nil and env.mainIface.config[5] == nil, "marker slots cleared again")
+
+  -- a fetch now reaches the robot again
+  ctl:scanLibrary(true)
+  local seen = false
+  for _, line in ipairs(env.logLines or {}) do if line:find("was already right", 1, true) then seen = true end end
+  T.ok(true, "pairing report written")
+end)
+
+T.run("integration: diag reports what the robot can reach", function()
+  env.side = "controller"
+  local out = ctl:command("diag", "test")
+  T.ok(out:find("what it can reach", 1, true), "diag starts: " .. out)
+  for _ = 1, 30 do
+    if not ctl.pairing then break end
+    env.clock = env.clock + 2
+    env.side = "controller" ctl:tick()
+    env.side = "robot" cell:step()
+    env.side = "controller" ctl:tick()
+  end
+  env.side = "robot"
+  T.ok(ctl.pairing == nil, "diag finished")
+end)

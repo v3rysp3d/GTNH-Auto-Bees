@@ -56,12 +56,18 @@ function settings.describe(cfg)
   local d = cfg.discord or {}
   local h = cfg.host or {}
   local function mask(v) v = tostring(v or "") if v == "" then return "-" end return v:sub(1, 6) .. "..." end
-  return {
+  local lines = {
     string.format("discord: %s  webhook=%s  bot token=%s  channel=%s  prefix=%s",
       d.enabled and "enabled" or "disabled", (d.webhook or "") ~= "" and "set" or "-", mask(d.token), (d.channel or "") ~= "" and d.channel or "-", d.prefix or "!"),
     string.format("host: %s  push every %ss", (h.url or "") ~= "" and h.url or "-", tostring(h.pushInterval or 0)),
     string.format("cells: %s", table.concat(util.sortedKeys(cfg.cells or {}), ", ")),
   }
+  for _, name in ipairs(util.sortedKeys(cfg.cells or {})) do
+    local c = cfg.cells[name]
+    lines[#lines + 1] = string.format("  %s: main=%s bees=%s (main is above the robot, bees below; `pair` sets them)",
+      name, tostring(c.mainInterface):sub(1, 8), tostring(c.beeInterface):sub(1, 8))
+  end
+  return lines
 end
 
 return settings

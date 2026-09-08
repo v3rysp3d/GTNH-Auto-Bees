@@ -776,6 +776,8 @@ function controller:new(cfg, logger)
       local r = self.requestsByReqId[p.reqId]
       if r and self.me then self.me:clearInterfaceSlot(r.iface, r.slot) end
       self.requestsByReqId[p.reqId] = nil
+    elseif msg.type == "probeResult" then
+      self.probeReply = p
     elseif msg.type == "badstock" then
       self:notify("%s: library sent a non-pure %s %s, quarantined", c.name, self:label(p.species), tostring(p.kind))
     elseif msg.type == "event" then
@@ -965,8 +967,14 @@ function controller:new(cfg, logger)
         "find <text>            catalog numbers (shared names show their mod)",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
-        "settings [show|test|interfaces|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
+        "pair [cell]            find out which ME interface is which by marking them for the robot",
+        "diag [cell]            report what the robot can reach above, below and in front",
+        "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
+    elseif verb == "pair" then
+      return self:startPairing(w[2], false)
+    elseif verb == "diag" then
+      return self:startPairing(w[2], true)
     elseif verb == "settings" then
       return self:settingsCommand(w)
     elseif verb == "find" then
@@ -1158,28 +1166,7 @@ function controller:new(cfg, logger)
     elseif sub == "test" then
       return table.concat(connect.report(self.internet, self.cfg.discord, self.cfg.host), "\n")
     elseif sub == "interfaces" then
-      -- put one honey drop into slot 3 of each configured interface for 30 s
-      -- so the player can see in game which block is which
-      if not self.me or not self.me.db then return "no ME network or database" end
-      local out = {}
-      for name, c in pairs(self.cfg.cells or {}) do
-        for _, which in ipairs({ "mainInterface", "beeInterface" }) do
-          local iface = ifaceProxy(c[which])
-          if not iface then
-            out[#out + 1] = string.format("%s %s: address %s not reachable", name, which, tostring(c[which]))
-          else
-            local ok, err = self.me:stockIntoInterface(iface, 3, { label = self.cfg.honeyLabel or "Honey Drop" }, which == "mainInterface" and 1 or 2, 1)
-            out[#out + 1] = string.format("%s %s (%s): %s", name, which, tostring(c[which]):sub(1, 8),
-              ok and ((which == "mainInterface" and "1" or "2") .. " Honey Drop in slot 3 for 30 s") or ("failed: " .. tostring(err)))
-            if ok then
-              self.interfaceProbe = self.interfaceProbe or {}
-              self.interfaceProbe[#self.interfaceProbe + 1] = { iface = iface, until_ = util.now() + 30 }
-            end
-          end
-        end
-      end
-      out[#out + 1] = "Open both interfaces: the one showing 2 drops must be the one BELOW the robot, 1 drop the one ABOVE."
-      return table.concat(out, "\n")
+      return self:startPairing(w[3], false)
     elseif sub == "host" then
       if not w[3] then return "usage: settings host <url>" end
       self:setSetting("host.url", w[3])
@@ -1215,6 +1202,169 @@ function controller:new(cfg, logger)
       return "usage: settings discord webhook <url> | bot <token> <channel> | prefix <p> | on | off"
     end
     return "usage: settings [show|test|host <url>|interval <s>|discord ...]"
+  end
+
+  ----------------------------------------------------------------------
+  -- interface pairing
+  --
+  -- The controller knows the ME interface addresses but cannot see inside
+  -- the blocks. The robot sees the blocks but not their addresses. So the
+  -- controller marks one interface at a time with honey drops and asks the
+  -- robot which one it can reach: the interface it sees below itself is the
+  -- bee library, the one above is the main interface. Sharing an ME network
+  -- is not enough, because each interface is a separate block with its own
+  -- slots and only the adjacent one can be reached.
+  ----------------------------------------------------------------------
+  obj.PAIR_SLOT = 5
+
+  function obj:sendProbe(where, slot)
+    local P = self.pairing
+    self.probeSeq = (self.probeSeq or 0) + 1
+    self.probeReply = nil
+    P.waiting = true
+    P.deadline = util.now() + 45
+    self.link:send(P.addr, "probe", { reqId = "p" .. self.probeSeq, where = where, slot = slot })
+  end
+
+  function obj:startPairing(cellName, diagOnly)
+    local c = cellName and self.cells[cellName] or nil
+    if not c then
+      local names = util.sortedKeys(self.cells)
+      if #names == 1 then c = self.cells[names[1]] end
+    end
+    if not c or not c.addr then return "no cell is online; start the robot first" end
+    if c.job then return "cell " .. c.name .. " is running job " .. tostring(c.job) .. "; cancel it first" end
+    if self.pairing then return "already running, wait for it to finish" end
+    local cands = {}
+    if not diagOnly then
+      if not self.me or not self.me.db then return "no ME network or database upgrade on the controller" end
+      for addr in component.list("me_interface") do cands[#cands + 1] = addr end
+      if #cands == 0 then return "no me_interface component: is an adapter touching each interface?" end
+    end
+    self.pairing = { name = c.name, addr = c.addr, cands = cands, i = 1, phase = diagOnly and "diag_down" or "stock",
+                     seen = {}, sizes = {}, diagOnly = diagOnly, started = util.now() }
+    if diagOnly then return "asking " .. c.name .. " what it can reach; watch the log" end
+    return string.format("pairing %s against %d interface(s); this takes about a minute, watch the log", c.name, #cands)
+  end
+
+  function obj:pairMark(addr, on)
+    local iface = ifaceProxy(addr)
+    if not iface then return false, "address not reachable" end
+    if not on then
+      self.me:clearInterfaceSlot(iface, self.PAIR_SLOT)
+      return true
+    end
+    return self.me:stockIntoInterface(iface, self.PAIR_SLOT, { label = self.cfg.honeyLabel or "Honey Drop" }, 2, 1)
+  end
+
+  function obj:pairTick()
+    local P = self.pairing
+    if not P then return end
+
+    if P.waiting then
+      local r = self.probeReply
+      if not r then
+        if util.now() > P.deadline then
+          self:warn("pair: %s did not answer the probe; is the robot running main?", P.name)
+          self.pairing = nil
+        end
+        return
+      end
+      self.probeReply = nil
+      P.waiting = false
+      P.sizes[r.where or "?"] = r.size
+      if r.error then self:warn("pair: robot could not move to look %s: %s", tostring(r.where), tostring(r.error)) end
+      if P.diagOnly then
+        self:log("robot %s, looking %s: %s", P.name, tostring(r.where),
+          (r.size or 0) == 0 and "nothing with an inventory" or
+          string.format("%d slots%s", r.size, (r.filled or "") ~= "" and (", holding " .. r.filled) or ", empty"))
+        P.phase = (r.where == "down" and "diag_up") or (r.where == "up" and "diag_front") or "report"
+      else
+        if r.label ~= nil and r.count == 2 then
+          P.seen[r.where] = P.cands[P.i]
+          self:log("pair: %s is the interface %s the robot", tostring(P.cands[P.i]):sub(1, 8),
+            r.where == "down" and "below" or "above")
+        end
+        P.phase = (r.where == "down") and "probe_up" or "unmark"
+      end
+      return
+    end
+
+    if P.phase == "stock" then
+      local addr = P.cands[P.i]
+      if not addr or (P.seen.down and P.seen.up) then P.phase = "report" return end
+      local ok, err = self:pairMark(addr, true)
+      if not ok then
+        self:warn("pair: cannot mark %s: %s", tostring(addr):sub(1, 8), tostring(err))
+        P.i = P.i + 1
+        return
+      end
+      P.marked = addr
+      P.phase = "settle"
+      P.settleUntil = util.now() + 4
+    elseif P.phase == "settle" then
+      if util.now() >= P.settleUntil then P.phase = "probe_down" end
+    elseif P.phase == "probe_down" then
+      self:sendProbe("down", self.PAIR_SLOT)
+    elseif P.phase == "probe_up" then
+      if P.seen.up then P.phase = "unmark" else self:sendProbe("up", self.PAIR_SLOT) end
+    elseif P.phase == "unmark" then
+      if P.marked then self:pairMark(P.marked, false) P.marked = nil end
+      P.i = P.i + 1
+      P.phase = "stock"
+    elseif P.phase == "diag_down" then
+      self:sendProbe("down", nil)
+    elseif P.phase == "diag_up" then
+      self:sendProbe("up", nil)
+    elseif P.phase == "diag_front" then
+      self:sendProbe("front", nil)
+    elseif P.phase == "report" then
+      if P.marked then self:pairMark(P.marked, false) end
+      for _, line in ipairs(self:pairReport(P)) do self:log("%s", line) end
+      self.pairing = nil
+    end
+  end
+
+  ---Explain the outcome and save the addresses when both roles were found.
+  function obj:pairReport(P)
+    local out = {}
+    if P.diagOnly then
+      out[#out + 1] = "diag done. An ME interface reports 9 slots, the apiary more, air reports none."
+      return out
+    end
+    local cellCfg = (self.cfg.cells or {})[P.name] or {}
+    if P.seen.down then
+      if cellCfg.beeInterface ~= P.seen.down then
+        self:setSetting("cells." .. P.name .. ".beeInterface", P.seen.down)
+        out[#out + 1] = "bee interface corrected to " .. P.seen.down:sub(1, 8) .. " and saved"
+      else
+        out[#out + 1] = "bee interface " .. P.seen.down:sub(1, 8) .. " was already right"
+      end
+    end
+    if P.seen.up then
+      if cellCfg.mainInterface ~= P.seen.up then
+        self:setSetting("cells." .. P.name .. ".mainInterface", P.seen.up)
+        out[#out + 1] = "main interface corrected to " .. P.seen.up:sub(1, 8) .. " and saved"
+      else
+        out[#out + 1] = "main interface " .. P.seen.up:sub(1, 8) .. " was already right"
+      end
+    end
+    if not P.seen.down then
+      local size = P.sizes.down or 0
+      if size == 0 then
+        out[#out + 1] = "PROBLEM: nothing with an inventory below the robot. The bee interface belongs"
+        out[#out + 1] = "directly under the robot's lower position, two blocks below the parking spot."
+      else
+        out[#out + 1] = string.format("PROBLEM: an inventory of %d slots sits below the robot but the network", size)
+        out[#out + 1] = "never put the marker in it: no adapter touches it, it is on another ME network,"
+        out[#out + 1] = "or it has no channel or power."
+      end
+    end
+    if not P.seen.up then
+      out[#out + 1] = "the interface above the robot was not identified; honey and blocks cannot arrive"
+    end
+    if P.seen.down and P.seen.up then out[#out + 1] = "pairing done, start the job again with: retry r1" end
+    return out
   end
 
   ----------------------------------------------------------------------
@@ -1343,6 +1493,11 @@ function controller:new(cfg, logger)
     self:hostTick()
     for _, c in pairs(self.cells) do
       if c.status ~= "offline" and util.now() - c.lastSeen > 120 then c.status = "offline" end
+    end
+    local okPair, whyPair = pcall(function() self:pairTick() end)
+    if not okPair then
+      self:warn("pair failed: %s", tostring(whyPair))
+      self.pairing = nil
     end
     if self.interfaceProbe then
       for i = #self.interfaceProbe, 1, -1 do
