@@ -233,12 +233,26 @@ function cell:new(cfg, logger)
     end
   end
 
+  --- An ME interface fills a configured slot over the next few ticks; wait
+  --- for the item to show up before reaching in. Returns the stack or nil.
+  local function awaitStock(side, slot, what)
+    local deadline = util.now() + (cfg.stockTimeout or 15)
+    while util.now() < deadline do
+      local ok, st = pcall(invctl.getStackInSlot, side, slot)
+      if ok and type(st) == "table" then return st end
+      pump(0.5)
+    end
+    say("interface slot %d stayed empty while waiting for %s: is that interface the right one, and is the item in the ME network?", slot, tostring(what))
+    return nil
+  end
+
   local function ensureHoney()
     if robot.count(cfg.slots.honey) >= cfg.honeyMin then return true end
     local reply = ask({ honey = true, count = cfg.honeyFetch })
     goTo(1)
     robot.select(cfg.slots.honey)
     local slot = reply and reply.slot or cfg.interface.main.honey
+    awaitStock(sides.up, slot, "honey drops")
     invctl.suckFromSlot(sides.up, slot, cfg.honeyFetch)
     consolidateHoney()
     if robot.count(cfg.slots.honey) == 0 then
@@ -255,7 +269,9 @@ function cell:new(cfg, logger)
     local slot = firstEmpty()
     if not slot then return nil, "robot inventory full" end
     robot.select(slot)
-    local moved = invctl.suckFromSlot(sides.up, reply.slot or cfg.interface.main.supply, count or 1)
+    local ifaceSlot = reply.slot or cfg.interface.main.supply
+    awaitStock(sides.up, ifaceSlot, request.item or request.upgrade or "item")
+    local moved = invctl.suckFromSlot(sides.up, ifaceSlot, count or 1)
     tell("got", { reqId = request.reqId })
     if not moved or robot.count(slot) == 0 then return nil, "nothing arrived in the interface" end
     return slot
@@ -298,6 +314,7 @@ function cell:new(cfg, logger)
       local slot = firstEmpty()
       if not slot then err = "robot inventory full" break end
       robot.select(slot)
+      awaitStock(sides.down, reply.slot, tostring(name or uid) .. " " .. kind)
       invctl.suckFromSlot(sides.down, reply.slot, count)
       tell("got", { reqId = reply.reqId })
       local st = stackIn(slot)

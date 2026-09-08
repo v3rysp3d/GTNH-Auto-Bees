@@ -268,8 +268,10 @@ function controller:new(cfg, logger)
     local cost = 0
     for _, c in ipairs(conds) do
       if c.kind == "foundation" then
+        -- stock and patterns are not consulted here: that is one ME call per
+        -- block and would freeze the planner. Missing blocks are handled at
+        -- dispatch time (the job waits and you get a card).
         cost = cost + (self.cfg.foundationCostBase or 2)
-        if self.me and self.me:countLabel(c.block) == 0 and not self.me:hasPattern(c.block) then cost = cost + 50 end
       elseif c.kind == "temperature" or c.kind == "humidity" then
         cost = cost + 1
       elseif c.kind == "dimension" or c.kind == "biomeId" or c.kind == "biome" or c.kind == "gtmachine" then
@@ -635,10 +637,11 @@ function controller:new(cfg, logger)
       local slot = (p.kind == "princess") and slots.bees.princess or slots.bees.drone
       local name = p.name or (p.species and self:nameOf(p.species))
       if not name then
-        -- any princess: the species with the most princesses
+        -- any princess: the species with the most princesses, analyzed or not
         local bestName, bestN = nil, 0
-        for uid, b in pairs(self.library) do
-          if b.princesses > bestN and not uid:match("^name:") then bestName, bestN = b.name, b.princesses end
+        for _, b in pairs(self.library) do
+          local n = (b.princesses or 0) + (b.unanalyzedPrincesses or 0)
+          if n > bestN and b.name then bestName, bestN = b.name, n end
         end
         if not bestName then return fail("no princesses in the library") end
         name = bestName
@@ -1064,7 +1067,11 @@ function controller:new(cfg, logger)
         while #out > 40 do table.remove(out) end
         out[#out + 1] = string.format("... %d more", n - 40)
       end
-      return #out > 0 and table.concat(out, "\n") or "library empty (is the ME network reachable?)"
+      if #out == 0 then return "library empty (is the ME network reachable?)" end
+      if self.me and filter == "" then
+        out[#out + 1] = string.format("honey drops in ME: %d", self.me:countLabel(self.cfg.honeyLabel or "Honey Drop"))
+      end
+      return table.concat(out, "\n")
     elseif verb == "cancel" then
       local id = w[2]
       if not id then return "cancel what?" end
