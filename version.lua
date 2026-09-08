@@ -1,5 +1,5 @@
 local versions = {
-  programVersion = "0.2.12",
+  programVersion = "0.2.13",
   configVersion = 1
 }
 

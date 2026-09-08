@@ -27,7 +27,19 @@ end
 
 --- me: network proxy; db: database proxy (optional, needed for stocking)
 function ae2.new(me, db)
-  return setmetatable({ me = me, db = db, dbSize = db and 9 or 0, slowCalls = {} }, ae2)
+  return setmetatable({ me = me, db = db, dbSize = db and 9 or 0, slowCalls = {},
+                        slotOffset = ae2.DEFAULT_SLOT_OFFSET }, ae2)
+end
+
+--- setInterfaceConfiguration numbers its slots from zero on the GTNH AE2
+--- build, while every inventory read (getStackInSlot, suckFromSlot) numbers
+--- them from one. Stocking "slot 1" therefore delivers into the slot the
+--- robot knows as 2. Everything here speaks the robot's numbering and this
+--- offset is added when talking to the interface; `pair` measures it.
+ae2.DEFAULT_SLOT_OFFSET = -1
+
+function ae2:configIndex(slot)
+  return slot + (self.slotOffset or ae2.DEFAULT_SLOT_OFFSET)
 end
 
 function ae2:setDatabase(db, size)
@@ -109,13 +121,13 @@ function ae2:stockIntoInterface(iface, slot, filter, count, dbSlot)
   if filter.label and entry.label ~= filter.label then
     return false, "database holds " .. tostring(entry.label) .. " instead of " .. filter.label
   end
-  local okCfg, resCfg = pcall(iface.setInterfaceConfiguration, slot, self.db.address, dbSlot, count or 1)
+  local okCfg, resCfg = pcall(iface.setInterfaceConfiguration, self:configIndex(slot), self.db.address, dbSlot, count or 1)
   if not okCfg or resCfg == false then return false, "setInterfaceConfiguration failed: " .. tostring(resCfg) end
   return true, entry
 end
 
 function ae2:clearInterfaceSlot(iface, slot)
-  local ok = pcall(iface.setInterfaceConfiguration, slot)
+  local ok = pcall(iface.setInterfaceConfiguration, self:configIndex(slot))
   return ok
 end
 

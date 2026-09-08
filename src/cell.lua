@@ -273,10 +273,14 @@ function cell:new(cfg, logger)
     for slot = 1, math.min(res.size, 27) do
       local okS, st = pcall(invctl.getStackInSlot, side, slot)
       if okS and type(st) == "table" then
-        filled[#filled + 1] = string.format("%d=%s x%d", slot, tostring(st.label), math.floor(st.size or 1))
+        local n = math.floor(st.size or 1)
+        filled[#filled + 1] = string.format("%d=%s x%d", slot, tostring(st.label), n)
         if p.slot and slot == p.slot then
-          res.label = st.label
-          res.count = math.floor(st.size or 1)
+          res.label, res.count = st.label, n
+        end
+        -- where the marker really landed, which is how the slot offset is measured
+        if p.label and st.label == p.label then
+          res.foundSlot, res.foundCount, res.foundLabel = slot, n, st.label
         end
       end
     end

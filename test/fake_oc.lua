@@ -130,16 +130,19 @@ function fake.install(opts)
 
   local function newInterface(address)
     local iface = networkApi({ address = address, type = "me_interface", config = {} })
-    function iface.setInterfaceConfiguration(slot, dbAddr, entry, size)
-      if dbAddr == nil then iface.config[slot] = nil return true end
+    --- Faithful to GTNH: configuration slots count from zero, so config
+    --- index 0 is the slot the robot reads as 1.
+    function iface.setInterfaceConfiguration(idx, dbAddr, entry, size)
+      if idx < 0 or idx > 8 then return false end
+      if dbAddr == nil then iface.config[idx] = nil return true end
       local st = database.slots[entry]
       if not st then return false end
-      iface.config[slot] = { label = st.label, size = size or 1 }
+      iface.config[idx] = { label = st.label, size = size or 1 }
       return true
     end
     --- what the robot sees in slot `slot` (materialised from the network on demand)
     function iface.peek(slot)
-      local c = iface.config[slot]
+      local c = iface.config[slot - 1]
       if not c then return nil end
       local n = math.min(c.size, me.count(c.label))
       if n == 0 then return nil end
@@ -398,7 +401,7 @@ function fake.install(opts)
       return invInsert(st, world.selected)
     elseif t == "main" or t == "bees" then
       local iface = (t == "main") and mainIface or beeIface
-      local c = iface.config[slot]
+      local c = iface.config[slot - 1]   -- config indices count from zero
       if not c then return false end
       local n = math.min(count or c.size, c.size)
       local got = me.take(c.label, n)

@@ -136,6 +136,7 @@ function controller:new(cfg, logger)
     if self.me then
       local dbAddr = (cfg.ae2 and cfg.ae2.database) or component.list("database")()
       if dbAddr then self.me:setDatabase(component.proxy(dbAddr)) end
+      self.me.slotOffset = tonumber(cfg.interfaceSlotOffset) or self.me.slotOffset
     end
     local modemAddr = component.list("modem")()
     self.link = net.new(modemAddr and component.proxy(modemAddr) or nil, cfg.port, "controller")
@@ -200,10 +201,15 @@ function controller:new(cfg, logger)
   function obj:scanLibrary(force)
     if not self.me then return end
     if not force and util.now() - self.libraryScannedAt < (self.cfg.libraryScanInterval or 60) then return end
+    local started = util.now()
     local ok, lib = pcall(function() return self.me:library() end)
     if ok and type(lib) == "table" then
       self.library = lib
       self.libraryScannedAt = util.now()
+      local took = self.libraryScannedAt - started
+      if took >= 5 then
+        self:warn("the library scan took %.0fs; raise libraryScanInterval if that hurts", took)
+      end
     else
       self:warn("library scan failed: %s", tostring(lib))
     end
@@ -486,19 +492,41 @@ function controller:new(cfg, logger)
 
   --- Label of the Industrial Apiary upgrade item for a climate key ("heater"),
   --- found by looking at what the ME network holds.
+  --- Reading every item in the network is the most expensive call there is,
+  --- so all the upgrade labels are collected in a single pass and kept.
+  --- A key that is missing stays missing until the cache expires, instead of
+  --- costing another full scan on every job.
+  obj.UPGRADE_CACHE_TTL = 600
+
+  function obj:scanUpgradeLabels()
+    self.upgradeLabels = {}
+    self.upgradeLabelsAt = util.now()
+    if not self.me then return end
+    local keys = {}
+    for key in pairs(self.cfg.upgradeKeys or {}) do keys[#keys + 1] = tostring(key):lower() end
+    if #keys == 0 then
+      for _, key in ipairs({ "heater", "cooler", "humidif", "dryer", "hell", "desert", "plains",
+                             "jungle", "winter", "ocean", "speed", "lifespan" }) do
+        keys[#keys + 1] = key
+      end
+    end
+    for _, st in ipairs(self.me:items()) do
+      local l = tostring(st.label or ""):lower()
+      if l:find("apiary", 1, true) then
+        for _, key in ipairs(keys) do
+          if not self.upgradeLabels[key] and l:find(key, 1, true) then self.upgradeLabels[key] = st.label end
+        end
+      end
+    end
+  end
+
   function obj:findUpgradeLabel(key)
     if not self.me then return nil end
     key = tostring(key):lower()
-    self.upgradeLabels = self.upgradeLabels or {}
-    if self.upgradeLabels[key] then return self.upgradeLabels[key] end
-    for _, st in ipairs(self.me:items()) do
-      local l = tostring(st.label or ""):lower()
-      if l:find("apiary", 1, true) and l:find(key, 1, true) then
-        self.upgradeLabels[key] = st.label
-        return st.label
-      end
+    if not self.upgradeLabels or util.now() - (self.upgradeLabelsAt or 0) > self.UPGRADE_CACHE_TTL then
+      self:scanUpgradeLabels()
     end
-    return nil
+    return self.upgradeLabels[key]
   end
 
   --- Make sure the things a job needs exist. Returns true, or "wait", reason
@@ -1223,7 +1251,8 @@ function controller:new(cfg, logger)
     self.probeReply = nil
     P.waiting = true
     P.deadline = util.now() + 45
-    self.link:send(P.addr, "probe", { reqId = "p" .. self.probeSeq, where = where, slot = slot })
+    self.link:send(P.addr, "probe", { reqId = "p" .. self.probeSeq, where = where, slot = slot,
+      label = self.cfg.honeyLabel or "Honey Drop" })
   end
 
   function obj:startPairing(cellName, diagOnly)
@@ -1280,10 +1309,11 @@ function controller:new(cfg, logger)
           string.format("%d slots%s", r.size, (r.filled or "") ~= "" and (", holding " .. r.filled) or ", empty"))
         P.phase = (r.where == "down" and "diag_up") or (r.where == "up" and "diag_front") or "report"
       else
-        if r.label ~= nil and r.count == 2 then
+        if r.foundCount == 2 and r.foundSlot then
           P.seen[r.where] = P.cands[P.i]
-          self:log("pair: %s is the interface %s the robot", tostring(P.cands[P.i]):sub(1, 8),
-            r.where == "down" and "below" or "above")
+          P.offset = self.PAIR_SLOT - r.foundSlot
+          self:log("pair: %s is the interface %s the robot (marker in slot %d)", tostring(P.cands[P.i]):sub(1, 8),
+            r.where == "down" and "below" or "above", r.foundSlot)
         end
         P.phase = (r.where == "down") and "probe_up" or "unmark"
       end
@@ -1331,6 +1361,15 @@ function controller:new(cfg, logger)
     if P.diagOnly then
       out[#out + 1] = "diag done. An ME interface reports 9 slots, the apiary more, air reports none."
       return out
+    end
+    if P.offset then
+      local was = self.me.slotOffset
+      if was ~= P.offset then
+        self.me.slotOffset = P.offset
+        self:setSetting("interfaceSlotOffset", P.offset)
+        out[#out + 1] = string.format("interface slots are numbered %s the robot's, offset %d saved",
+          P.offset == 0 and "the same as" or "differently from", P.offset)
+      end
     end
     local cellCfg = (self.cfg.cells or {})[P.name] or {}
     if P.seen.down then
@@ -1485,12 +1524,23 @@ function controller:new(cfg, logger)
   ----------------------------------------------------------------------
   -- main loop (runs in a program-lib thread)
   ----------------------------------------------------------------------
+  --- A tick that takes minutes makes the whole system look dead, so the
+  --- time each phase costs is measured and reported when it adds up.
+  obj.SLOW_TICK = 10
+
   function obj:tick()
-    self:scanLibrary()
-    self:checkWaiting()
-    self:dispatch()
-    self:discordTick()
-    self:hostTick()
+    local started, spent, last = util.now(), {}, util.now()
+    local function phase(name, fn)
+      fn()
+      local now = util.now()
+      spent[#spent + 1] = { name = name, took = now - last }
+      last = now
+    end
+    phase("library", function() self:scanLibrary() end)
+    phase("waiting", function() self:checkWaiting() end)
+    phase("dispatch", function() self:dispatch() end)
+    phase("discord", function() self:discordTick() end)
+    phase("host", function() self:hostTick() end)
     for _, c in pairs(self.cells) do
       if c.status ~= "offline" and util.now() - c.lastSeen > 120 then c.status = "offline" end
     end
@@ -1511,6 +1561,14 @@ function controller:new(cfg, logger)
     if self.me and #self.me.slowCalls > 0 then
       for _, line in ipairs(self.me.slowCalls) do self:warn("slow ME call: %s", line) end
       self.me.slowCalls = {}
+    end
+    local total = util.now() - started
+    if total > self.SLOW_TICK then
+      local parts = {}
+      for _, p in ipairs(spent) do
+        if p.took >= 1 then parts[#parts + 1] = string.format("%s %.0fs", p.name, p.took) end
+      end
+      self:warn("slow round: %.0fs (%s)", total, #parts > 0 and table.concat(parts, ", ") or "spread out")
     end
   end
 

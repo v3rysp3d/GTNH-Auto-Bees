@@ -66,7 +66,12 @@ local config = {
 
     chanceWeight = 0.1,        -- planner: cost per (100 / mutation chance)
     foundationCostBase = 2,    -- planner: extra cost per foundation block
-    libraryScanInterval = 300, -- seconds between ME library scans (each scan reads every bee in the network)
+    libraryScanInterval = 900, -- seconds between ME library scans (each scan reads every bee in the network)
+
+    -- ME Interface configuration slots are numbered from zero on GTNH while
+    -- inventory reads are numbered from one, so a stocked item lands one slot
+    -- further along. `pair` measures this and saves it; -1 is the GTNH value.
+    interfaceSlotOffset = -1,
 
     effectBlacklist = {},      -- species names never bred at home, e.g. { ["Radioactive"] = true }
 

@@ -256,6 +256,10 @@ blocks. `pair` reports which of these is wrong:
 `diag` is the smaller version: it reports what the robot can reach above, below and in front without touching
 the ME network at all. An ME Interface reports nine slots, the apiary more, air reports none.
 
+`pair` also measures the slot numbering. ME Interface configuration slots count from zero on GTNH while every
+inventory read counts from one, so a stocked item lands one slot further along than the robot looks. The
+`interfaceSlotOffset` setting holds the difference and defaults to the GTNH value of -1.
+
 <a id="configuration"></a>
 
 ## Configuration
