@@ -209,22 +209,50 @@ function controller:new(cfg, logger)
     end
   end
 
+  --- Unanalyzed bees only show a display name. When that name belongs to
+  --- exactly one species they count as stock of it: the robot analyzes what
+  --- it fetches and keeps only what is pure.
+  function obj:unanalyzedBucketFor(uid)
+    local name = self:nameOf(uid)
+    local b = self.library["name:" .. tostring(name)]
+    if not b then return nil end
+    local e = self.cat:uniqueByName(name)
+    if not e or e.uid ~= uid then return nil end
+    return b
+  end
+
+  function obj:dronesOf(uid)
+    local n = self.library[uid] and self.library[uid].drones or 0
+    local u = self:unanalyzedBucketFor(uid)
+    if u then n = n + (u.unanalyzedDrones or 0) end
+    return n
+  end
+
+  function obj:princessesOf(uid)
+    local n = self.library[uid] and self.library[uid].princesses or 0
+    local u = self:unanalyzedBucketFor(uid)
+    if u then n = n + (u.unanalyzedPrincesses or 0) end
+    return n
+  end
+
   function obj:ownedSet()
     local owned = {}
     for uid, b in pairs(self.library) do
-      if b.drones > 0 and not uid:match("^name:") then owned[uid] = true end
+      if uid:match("^name:") then
+        local e = self.cat:uniqueByName(b.name)
+        if e and (b.unanalyzedDrones or 0) > 0 then owned[e.uid] = true end
+      elseif b.drones > 0 then
+        owned[uid] = true
+      end
     end
     return owned
   end
 
   function obj:princessPool()
     local n = 0
-    for _, b in pairs(self.library) do n = n + b.princesses end
+    for _, b in pairs(self.library) do n = n + b.princesses + (b.unanalyzedPrincesses or 0) end
     return n
   end
-
-  function obj:dronesOf(uid) return self.library[uid] and self.library[uid].drones or 0 end
-  function obj:princessesOf(uid) return self.library[uid] and self.library[uid].princesses or 0 end
 
   ----------------------------------------------------------------------
   -- planning
@@ -435,6 +463,26 @@ function controller:new(cfg, logger)
     return nil
   end
 
+  --- Label of the Industrial Apiary upgrade item for a climate key ("heater"),
+  --- found by looking at what the ME network holds.
+  function obj:findUpgradeLabel(key)
+    if not self.me then return nil end
+    key = tostring(key):lower()
+    self.upgradeLabels = self.upgradeLabels or {}
+    if self.upgradeLabels[key] then return self.upgradeLabels[key] end
+    for _, st in ipairs(self.me:items()) do
+      local l = tostring(st.label or ""):lower()
+      if l:find("apiary", 1, true) and l:find(key, 1, true) then
+        self.upgradeLabels[key] = st.label
+        return st.label
+      end
+    end
+    return nil
+  end
+
+  --- Make sure the things a job needs exist. Returns true, or "wait", reason
+  --- when an item is missing (a craft is requested when a pattern exists), or
+  --- false, reason when the job can never run on this cell.
   function obj:prepareJob(job, c)
     local base = c.cfg.base or { temp = 0.8, hum = 0.4 }
     if job.needTemp or job.needHum then
@@ -444,12 +492,72 @@ function controller:new(cfg, logger)
     else
       job.climate = {}
     end
-    if job.foundation and self.me and self.me:countLabel(job.foundation) == 0 then
-      local status, err = self.me:craft(job.foundation, 1)
-      if status then self:notify("crafting %s for %s", job.foundation, self:label(job.target))
-      else return false, "no " .. job.foundation .. " in stock and " .. tostring(err) end
+    if not self.me then return true end
+    if job.foundation and self.me:countLabel(job.foundation) == 0 then
+      return "wait", job.foundation
+    end
+    for key, n in pairs(job.climate or {}) do
+      local label = self:findUpgradeLabel(key)
+      if not label then return "wait", key .. " upgrade for the Industrial Apiary" end
+      if self.me:countLabel(label) < n then return "wait", label .. " x" .. n end
     end
     return true
+  end
+
+  --- Park a job until `item` shows up in the ME network; ask AE2 to craft it
+  --- when a pattern exists. The queue moves on to other jobs meanwhile.
+  function obj:waitFor(job, item)
+    job.status = "waiting"
+    job.waitingFor = item
+    job.waitSince = job.waitSince or util.now()
+    job.cell = nil
+    local crafted = false
+    if self.me and self.me:hasPattern(item) then
+      local status = self.me:craft(item, 1)
+      crafted = status ~= nil
+      job.lastCraft = util.now()
+    end
+    if not job.notified then
+      job.notified = true
+      if crafted then
+        self:card("needs", string.format("%s waits for %s", job.id, item), {
+          { "Target", self:label(job.target) }, { "Action", "crafting requested, the job resumes when it lands in ME" } }, nil, job.target)
+      else
+        self:card("needs", string.format("%s needs %s", job.id, item), {
+          { "Target", self:label(job.target) }, { "Action", "no pattern: put it in the ME network by hand, the job resumes on its own" } }, nil, job.target)
+      end
+    end
+    self:saveState()
+  end
+
+  --- Re-check waiting jobs: release the ones whose item arrived, re-request
+  --- crafts that went nowhere.
+  function obj:checkWaiting()
+    if not self.me then return end
+    if util.now() - (self.lastWaitCheck or 0) < 30 then return end
+    self.lastWaitCheck = util.now()
+    for _, job in pairs(self.S.jobs) do
+      if job.status == "waiting" and job.waitingFor then
+        local item = job.waitingFor
+        local needed = tonumber(item:match(" x(%d+)$")) or 1
+        local label = item:gsub(" x%d+$", "")
+        if not label:find(" upgrade for the Industrial Apiary", 1, true) and self.me:countLabel(label) >= needed then
+          job.status = "pending"
+          job.waitingFor, job.notified, job.waitSince = nil, nil, nil
+          self:notify("%s: %s is available, resuming", job.id, label)
+        elseif label:find(" upgrade for the Industrial Apiary", 1, true) then
+          local key = label:match("^(%S+) upgrade")
+          if key and self:findUpgradeLabel(key) then
+            job.status = "pending"
+            job.waitingFor, job.notified, job.waitSince = nil, nil, nil
+          end
+        elseif self.me:hasPattern(label) and util.now() - (job.lastCraft or 0) > 300 then
+          -- the earlier craft did not deliver (ingredients ran out?): ask again
+          self.me:craft(label, needed)
+          job.lastCraft = util.now()
+        end
+      end
+    end
   end
 
   function obj:dispatch()
@@ -458,7 +566,9 @@ function controller:new(cfg, logger)
         local job = self:nextReadyJob()
         if not job then return end
         local ok, why = self:prepareJob(job, c)
-        if not ok then
+        if ok == "wait" then
+          self:waitFor(job, why)
+        elseif not ok then
           job.status = "failed"
           job.error = why
           self:notify("%s cannot start: %s", job.id, why)
@@ -540,11 +650,7 @@ function controller:new(cfg, logger)
     elseif p.upgrade then
       if not mainIface then return fail("cell has no mainInterface configured") end
       local key = tostring(p.upgrade):lower()
-      local found
-      for _, st in ipairs(self.me:items()) do
-        local l = tostring(st.label or ""):lower()
-        if l:find("apiary", 1, true) and l:find(key, 1, true) then found = st.label break end
-      end
+      local found = self:findUpgradeLabel(key)
       if not found then return fail("no '" .. key .. "' apiary upgrade in the ME network") end
       local ok, err = self.me:stockIntoInterface(mainIface, slots.main.supply, { label = found }, p.count or 1, 1)
       if not ok then return fail(err) end
@@ -583,8 +689,19 @@ function controller:new(cfg, logger)
           self:notify("%s ran out of %s drones; stockpiling first (%s)", job.id, self:label(missing), sj.id)
         end
       else
+        -- the robot found something missing that the controller can wait for
+        local reason = info.reason or ""
+        local missingItem = reason:match("^foundation: no (.-) available") or reason:match("no (%S+) upgrades")
+        if missingItem then
+          if reason:match("upgrades") then missingItem = missingItem .. " upgrade for the Industrial Apiary" end
+          job.notified = nil
+          self:waitFor(job, missingItem)
+          self:updateRequestStatus(req)
+          self:scanLibrary(true)
+          return
+        end
         job.attempts = (job.attempts or 0) + 1
-        if job.attempts < 3 and not (info.reason or ""):match("cancelled") then
+        if job.attempts < 3 and not reason:match("cancelled") then
           job.status = "pending"
           self:card("warn", string.format("%s failed, will retry", job.id), { { "Reason", tostring(info.reason) }, { "Target", self:label(job.target) } }, nil, job.target)
         else
@@ -708,8 +825,9 @@ function controller:new(cfg, logger)
         for _, jid in ipairs(r.jobs) do
           local j = self.S.jobs[jid]
           if j then
-            out[#out + 1] = string.format("   %s %-8s %s + %s -> %s  keep %d%s%s", j.id, j.status, self:label(j.a), self:label(j.b),
-              self:label(j.target), j.keepDrones or 0, j.cell and (" on " .. j.cell) or "", j.error and (" ! " .. j.error) or "")
+            out[#out + 1] = string.format("   %s %-8s %s + %s -> %s  keep %d%s%s%s", j.id, j.status, self:label(j.a), self:label(j.b),
+              self:label(j.target), j.keepDrones or 0, j.cell and (" on " .. j.cell) or "",
+              j.waitingFor and (" needs " .. j.waitingFor) or "", j.error and (" ! " .. j.error) or "")
           end
         end
       end
@@ -823,6 +941,7 @@ function controller:new(cfg, logger)
         "plan <number|name>     show the chain the planner would use",
         "needs <number|name>    autocraft / station needs for that chain",
         "find <text>            catalog numbers (shared names show their mod)",
+        "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | scan | survey",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
@@ -870,6 +989,19 @@ function controller:new(cfg, logger)
         ctx.craftable = function(label) return self.me:hasPattern(label) end
       end
       return table.concat(needs.lines(needs.forSteps(plan.steps, ctx), false), "\n")
+    elseif verb == "hives" then
+      self:scanLibrary()
+      local out = {}
+      for _, e in ipairs(self.graph:speciesList()) do
+        if self.graph:isBase(e.uid) then
+          local d, p = self:dronesOf(e.uid), self:princessesOf(e.uid)
+          out[#out + 1] = string.format("%-34s %s", self:label(e.uid),
+            (d > 0 or p > 0) and string.format("have: %d drones, %d princesses", d, p) or "MISSING")
+        end
+      end
+      table.sort(out)
+      table.insert(out, 1, string.format("%d hive-only species (never bred, found in the world):", #out))
+      return table.concat(out, "\n")
     elseif verb == "status" then
       return self:fmtStatus()
     elseif verb == "queue" then
@@ -1012,11 +1144,14 @@ function controller:new(cfg, logger)
       end
       fields[#fields + 1] = { name, value }
     end
-    local pending, running = 0, 0
+    local pending, running, waiting = 0, 0, {}
     for _, j in pairs(self.S.jobs) do
-      if j.status == "pending" then pending = pending + 1 elseif j.status == "running" then running = running + 1 end
+      if j.status == "pending" then pending = pending + 1
+      elseif j.status == "running" then running = running + 1
+      elseif j.status == "waiting" then waiting[#waiting + 1] = tostring(j.waitingFor) end
     end
-    fields[#fields + 1] = { "Queue", string.format("%d running, %d pending", running, pending) }
+    fields[#fields + 1] = { "Queue", string.format("%d running, %d pending%s", running, pending,
+      #waiting > 0 and (", waiting for " .. table.concat(waiting, ", ")) or "") }
     fields[#fields + 1] = { "Library", string.format("%d species, %d princesses", util.count(self:ownedSet()), self:princessPool()) }
     return discord.embed("status", "Auto Bees status", nil, fields)
   end
@@ -1113,6 +1248,7 @@ function controller:new(cfg, logger)
   ----------------------------------------------------------------------
   function obj:tick()
     self:scanLibrary()
+    self:checkWaiting()
     self:dispatch()
     self:discordTick()
     self:hostTick()

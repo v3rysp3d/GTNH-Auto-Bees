@@ -113,6 +113,52 @@ T.run("integration: breed Cultivated through Common with foundation + heater", f
   T.eq(env.world.level, 0, "robot parked at level 0")
 end)
 
+T.run("integration: a missing foundation block parks the job until it appears", function()
+  local res = ctl:command("breed Noble keep 2", "test")
+  T.ok(res:match("queued"), "Noble queued: " .. res)
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job = ctl.S.jobs[req.jobs[#req.jobs]]
+  -- a stockpile job for Cultivated runs first; then Noble hits the missing block
+  local rounds = 0
+  while job.status ~= "waiting" and rounds < 40 do
+    rounds = rounds + 1
+    ctl:tick()
+    cell:step()
+    ctl:tick()
+  end
+  T.eq(job.status, "waiting", "job waits instead of failing (" .. tostring(job.status) .. ")")
+  T.eq(job.waitingFor, "Block of Gold", "waiting for the foundation block")
+  T.ok(ctl:command("queue", "test"):find("needs Block of Gold", 1, true), "queue shows what is missing")
+  -- no pattern for gold: nothing was crafted; a needs card went out
+  T.ok(not util.contains(env.me.craftRequests, "Block of Gold"), "no craft without a pattern")
+  local sawNeeds = false
+  for _, r in ipairs(env.http) do if (r.body or ""):find("needs Block of Gold", 1, true) then sawNeeds = true end end
+  T.ok(sawNeeds, "needs card posted")
+  -- someone drops a gold block into the network
+  env.me.add({ name = "minecraft:gold_block", label = "Block of Gold", size = 1 })
+  ctl.lastWaitCheck = 0
+  rounds = 0
+  while req.status == "active" and rounds < 60 do
+    rounds = rounds + 1
+    ctl:tick()
+    cell:step()
+    ctl:tick()
+  end
+  T.eq(req.status, "done", "Noble finished once the block arrived (" .. tostring(req.status) .. ")")
+  T.eq(env.world.foundation, "Block of Gold", "foundation swapped to gold")
+end)
+
+T.run("integration: unanalyzed hive bees count as stock", function()
+  env.me.add(sim.mkBee("princess", "Meadows", "Meadows", false))
+  local raw = sim.mkBee("drone", "Meadows", "Meadows", false)
+  raw.size = 8
+  env.me.add(raw)
+  ctl:scanLibrary(true)
+  T.ok(ctl:dronesOf(U("Meadows")) >= 8, "unanalyzed Meadows drones counted: " .. ctl:dronesOf(U("Meadows")))
+  T.ok(ctl:ownedSet()[U("Meadows")], "Meadows owned through unanalyzed stock")
+  T.ok(ctl:princessPool() >= 1, "unanalyzed princess in the pool")
+end)
+
 T.run("integration: status and settings commands", function()
   T.ok(ctl:command("status", "test"):match("requests:"), "status renders")
   T.ok(ctl:command("queue", "test"):match("queue empty"), "queue empty after completion")

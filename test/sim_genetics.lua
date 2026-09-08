@@ -9,6 +9,7 @@ sim.dominant = { Forest = true, Meadows = true, Common = true, Cultivated = fals
 sim.mutations = {
   { a = "Forest", b = "Meadows", result = "Common", chance = 15 },
   { a = "Common", b = "Forest", result = "Cultivated", chance = 12 },
+  { a = "Cultivated", b = "Common", result = "Noble", chance = 20, foundation = "Block of Gold" },
 }
 
 function sim.uid(name) return "forestry.species" .. name end

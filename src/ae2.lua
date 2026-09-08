@@ -108,7 +108,8 @@ end
 function ae2:library()
   local lib = {}
   local function bucket(key, name)
-    lib[key] = lib[key] or { name = name, drones = 0, princesses = 0, queens = 0, hybrids = 0, unanalyzed = 0 }
+    lib[key] = lib[key] or { name = name, drones = 0, princesses = 0, queens = 0, hybrids = 0,
+      unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0 }
     return lib[key]
   end
   for _, st in ipairs(self:bees()) do
@@ -118,6 +119,8 @@ function ae2:library()
       local name = genome.displaySpecies(st) or "?"
       local b = bucket("name:" .. name, name)
       b.unanalyzed = b.unanalyzed + n
+      if kind == "drone" then b.unanalyzedDrones = b.unanalyzedDrones + n
+      elseif kind == "princess" then b.unanalyzedPrincesses = b.unanalyzedPrincesses + n end
     else
       local b = bucket(genome.active(st), genome.activeName(st))
       if not genome.isPureAny(st) then b.hybrids = b.hybrids + n
