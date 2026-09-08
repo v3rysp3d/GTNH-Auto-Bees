@@ -290,6 +290,9 @@ function fake.install(opts)
   function robotLib.inventorySize() return world.invSize end
   function robotLib.up() world.level = world.level + 1 return true end
   function robotLib.down() world.level = world.level - 1 return true end
+  world.facing = 0
+  function robotLib.turnLeft() world.facing = (world.facing + 1) % 4 world.turns = (world.turns or 0) + 1 return true end
+  function robotLib.turnRight() world.facing = (world.facing + 3) % 4 return true end
   function robotLib.detect(side)
     if side == sides.front and world.level == -1 then return world.foundation ~= nil, "solid" end
     if side == sides.up and world.level == 1 then return true, "solid" end
@@ -475,7 +478,11 @@ function fake.install(opts)
     if u.size <= 0 then housing.upgrades[i] = nil end
     return n
   end
-  function beekeeper.canWork() return true end
+  -- the housing sits on the robot's front only when it faces it (facing 0)
+  function beekeeper.canWork(side)
+    if world.level == 0 and side == sides.front and world.facing == 0 then return true end
+    return false, "No bee housing found"
+  end
   function beekeeper.getBeeProgress() return 0 end
 
   ------------------------------------------------------------------

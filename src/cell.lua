@@ -603,11 +603,33 @@ function cell:new(cfg, logger)
   ----------------------------------------------------------------------
   -- main loop
   ----------------------------------------------------------------------
+  --- Is there a bee housing on that side of the robot?
+  local function housingAt(side)
+    local ok, res, msg = pcall(beekeeper.canWork, side)
+    if not ok then return false end
+    return not (res == false and tostring(msg or ""):find("No bee housing", 1, true))
+  end
+
+  --- Turn until the housing is in front (it may be placed facing any way).
+  local function orient()
+    goTo(0)
+    for turn = 0, 3 do
+      if housingAt(sides.front) then
+        if turn > 0 then say("turned %d time(s) to face the housing", turn) end
+        return true
+      end
+      robot.turnLeft()
+    end
+    say("WARNING: no bee housing next to the robot at parking level; check the placement")
+    return false
+  end
+
   ---Announce, recover from an interrupted job. Call once before step().
   function obj:start()
     cfg.climateKeys = cfg.climateKeys or { heater = true, cooler = true, humidifier = true, dryer = true, hell = true,
       desert = true, plains = true, jungle = true, winter = true, ocean = true }
     say("cell '%s' starting (housing %s, level %d)", cfg.name, cfg.housing, level)
+    orient()
     if state.job then
       say("recovering from an interrupted job %s", tostring(state.job.id))
       local aborted = state.job

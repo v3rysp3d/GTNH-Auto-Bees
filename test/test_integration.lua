@@ -64,9 +64,12 @@ local cell = cellLib:new({
     speed = "speed", lifespan = "lifespan", light = "light", sky = "sky", seal = "seal" },
   keepUpgrades = { speed = true, lifespan = true }, maxUpgrades = 8, statePath = TESTS .. "/tmp/cell.state",
 }, env.logger)
+env.world.facing = 2   -- placed with its back to the apiary
 cell:start()
 
 T.run("integration: cell registers with the controller", function()
+  T.eq(env.world.facing, 0, "robot turned itself to face the housing")
+  T.eq(env.world.turns, 2, "two left turns from facing away")
   cell:step()
   ctl:tick()
   T.ok(ctl.cells.cell1 ~= nil, "controller knows cell1")
