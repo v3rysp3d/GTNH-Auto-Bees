@@ -742,6 +742,7 @@ function controller:new(cfg, logger)
         -- the robot found something missing that the controller can wait for
         local reason = info.reason or ""
         local missingItem = reason:match("^foundation: no (.-) available") or reason:match("no (%S+) upgrades")
+          or reason:match("analysis needs (.-):")
         if missingItem then
           if reason:match("upgrades") then missingItem = missingItem .. " upgrade for the Industrial Apiary" end
           job.notified = nil

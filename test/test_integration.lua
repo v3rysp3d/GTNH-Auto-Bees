@@ -318,6 +318,8 @@ end)
 T.run("integration: a machine that swallows the pair still completes a cycle", function()
   env.world.gtStyle = true
   env.world.housing.queen, env.world.housing.drone = nil, nil
+  me.add(sim.mkBee("princess", "Cultivated", "Cultivated", true))
+  me.add({ name = "Forestry:honeyDrop", label = "Honey Drop", size = 200 })
   env.side = "controller"
 
   local before = env.world.housing.matings

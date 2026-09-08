@@ -39,6 +39,10 @@ local genome = require("src.genome")
 
 local breeder = {}
 
+--- How many drones of a species the robot keeps in its own inventory as the
+--- next mate; everything above this goes to the library each generation.
+local SPARE_MATES = 4
+
 local function summarize(stack) return genome.summary(stack) end
 
 --- How good is this drone as a mate for reaching species `uid` (display `name`)?
@@ -63,7 +67,7 @@ function breeder.run(cell, job)
   local supply = job.droneSupply or 16
   local state = {
     generation = 0, archivedDrones = 0, hits = 0, phase = "prepare",
-    princessSlot = nil, mateSpecies = nil, honeyUsed = 0, fetchMissed = {},
+    princessSlot = nil, mateSpecies = nil, honeyUsed = 0, fetchMissed = {}, noHoney = nil,
   }
 
   local function ev(kind, data)
@@ -91,7 +95,14 @@ function breeder.run(cell, job)
     if not st then return nil end
     if genome.analyzed(st) then return st end
     local ok, err = cell.analyze(slot)
-    if not ok then ev("warn", { text = "analyze failed: " .. tostring(err) }) return st end
+    if not ok then
+      ev("warn", { text = "analyze failed: " .. tostring(err) })
+      -- Without honey nothing can be read, and an unreadable offspring is
+      -- indistinguishable from junk. Rather than quietly void generation
+      -- after generation, the job stops and says what it needs.
+      if tostring(err):lower():find("honey", 1, true) then state.noHoney = tostring(err) end
+      return st
+    end
     state.honeyUsed = state.honeyUsed + 1
     return cell.read(slot)
   end
@@ -119,6 +130,7 @@ function breeder.run(cell, job)
   end
   state.princessSlot = princessSlot
   local pst = analyzeSlot(princessSlot)
+  if state.noHoney then return fail("analysis needs Honey Drop: " .. state.noHoney) end
   if not pst or genome.kind(pst) ~= "princess" then return fail("fetched item is not a princess") end
   local princessIsA = genome.isPure(pst, A)
 
@@ -205,29 +217,43 @@ function breeder.run(cell, job)
         end
       end
     end
-    -- keep one stack per group: analyzed before unanalyzed, bigger before smaller
-    local function trim(list, onExtra)
+    local function order(list)
       table.sort(list, function(x, y)
         local ax, ay = genome.analyzed(x.stack) and 1 or 0, genome.analyzed(y.stack) and 1 or 0
         if ax ~= ay then return ax > ay end
         return (x.stack.size or 1) > (y.stack.size or 1)
       end)
-      for i = 2, #list do onExtra(list[i]) end
+      return list
     end
-    trim(groups.target, function(e)
-      local n = e.stack.size or 1
+
+    --- Identical bees stack, so the offspring of every generation merge into
+    --- the spare the robot is holding. Counting whole surplus *stacks* would
+    --- therefore bank nothing at all: what leaves is a surplus of drones,
+    --- keeping at most `spare` of them back as the next mate.
+    local function trimToSpare(list, spare, onSurplus)
+      local kept = 0
+      for _, e in ipairs(order(list)) do
+        local n = e.stack.size or 1
+        local room = math.max(0, spare - kept)
+        local hold = math.min(n, room)
+        kept = kept + hold
+        if n - hold > 0 then onSurplus(e, n - hold) end
+      end
+    end
+
+    trimToSpare(groups.target, SPARE_MATES, function(e, n)
       if cell.archive(e.slot, n) then
         state.archivedDrones = state.archivedDrones + n
         state.fetchMissed[target] = nil -- the library holds target drones now
       end
     end)
-    trim(groups.hybrid, function(e) cell.discard(e.slot) end)
+    trimToSpare(groups.hybrid, 0, function(e, n) cell.discard(e.slot, n) end)
     local done = {}
     for _, sp in ipairs({ A, B }) do
       if not done[sp] then
         done[sp] = true
-        trim(groups[sp], function(e)
-          if genome.analyzed(e.stack) then cell.archive(e.slot, e.stack.size or 1) else cell.discard(e.slot) end
+        trimToSpare(groups[sp], SPARE_MATES, function(e, n)
+          if genome.analyzed(e.stack) then cell.archive(e.slot, n) else cell.discard(e.slot, n) end
         end)
       end
     end
@@ -309,6 +335,9 @@ function breeder.run(cell, job)
         if genome.analyzed(st) and genome.hasSpecies(st, target) then hitsThisGen = hitsThisGen + 1 end
         droneSummaries[#droneSummaries + 1] = summarize(st)
       end
+    end
+    if state.noHoney then
+      return fail("analysis needs Honey Drop: " .. state.noHoney)
     end
     if not newPrincessSlot then return fail("princess did not come back from the housing") end
     state.princessSlot = newPrincessSlot

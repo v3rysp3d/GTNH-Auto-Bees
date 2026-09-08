@@ -241,6 +241,12 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 OpenComputers stamps its logs with the in-game clock, which runs 72 times faster than real time. An hour on
 screen is fifty real seconds, so a log that looks like it spent an hour on one step spent under a minute.
 
+### Honey drops are not optional
+
+Every offspring is analyzed before the robot can tell a mutation from junk, and analysis costs one Honey Drop.
+Keep them in the ME network; `library` prints how many are left. Without them a job stops with `analysis needs
+Honey Drop` and waits until some arrive, and no bee is ever voided unread.
+
 ### When a fetch never arrives
 
 The robot waits at an ME Interface slot that the network is supposed to fill. If the log says a slot stayed

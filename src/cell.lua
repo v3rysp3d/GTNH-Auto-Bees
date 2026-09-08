@@ -336,7 +336,7 @@ function cell:new(cfg, logger)
   function api.read(slot) return stackIn(slot) end
 
   function api.analyze(slot)
-    ensureHoney()
+    if not ensureHoney() then return false, "no honey drops reached the robot" end
     robot.select(slot)
     local ok, err = beekeeper.analyze(cfg.slots.honey)
     if not ok then return false, err end
@@ -501,16 +501,16 @@ function cell:new(cfg, logger)
     local before = toChest and chestCount("princess") or 0
 
     local t0 = util.now()
-    local started, sawQueen, sawBee = false, false, false
+    local started, sawQueen, sawPrincess = false, false, false
     while util.now() - t0 < cfg.startTimeout do
       local q = queenSlotStack()
-      if q then sawBee = true end
       if q and genome.kind(q) == "queen" then started, sawQueen = true, true break end
+      if q then sawPrincess = true end
       if toChest then
         if chestCount("princess") > before then return "done" end
-        if droneSlotStack() then sawBee = true end
-        -- inputs consumed into the recipe: the machine is working on them
-        if q == nil and droneSlotStack() == nil then started = true break end
+        -- the machine keeps its drone stack and takes only the princess, so
+        -- an empty queen slot after she went in means work has begun
+        if q == nil then started = true break end
       end
       pump(0.25)
     end
@@ -521,6 +521,9 @@ function cell:new(cfg, logger)
       local q, d = queenSlotStack(), droneSlotStack()
       say("housing holds: %s", housingContents())
       if q and not d then return "notstarted", "the princess is in the machine but no drone reached it" end
+      if q and genome.kind(q) == "princess" then
+        return "notstarted", "the machine never took the princess: is it powered and enabled?"
+      end
       if q then return "notstarted", "the machine is holding the bees but never started: power, or is it disabled?" end
       return "notstarted", "queen slot empty: no power, no drone, or machine disabled?"
     end
@@ -530,7 +533,7 @@ function cell:new(cfg, logger)
     -- if the bees were never seen in the machine the swap itself may have
     -- failed, so that case gets a short grace period rather than the full
     -- cycle timeout before it is called a failure
-    local graceUntil = (not sawBee) and (util.now() + (cfg.startGrace or 90)) or nil
+    local graceUntil = (not sawPrincess and not sawQueen) and (util.now() + (cfg.startGrace or 90)) or nil
     while true do
       if cancelRequested then return "cancelled" end
       if toChest then
@@ -594,13 +597,16 @@ function cell:new(cfg, logger)
   --- Junk bees never go back into the ME network (the library would hand
   --- them out again). They are dropped into the air above the parking spot
   --- and despawn.
-  function api.discard(slot)
-    if robot.count(slot) == 0 then return true end
+  ---Void `count` items from `slot` (the whole stack when count is nil).
+  function api.discard(slot, count)
+    local have = robot.count(slot)
+    if have == 0 then return true end
     local st = stackIn(slot)
     if st and not genome.isBee(st) then return dumpSlot(slot) end
     goTo(0)
     robot.select(slot)
-    local ok = robot.drop(sides.up)
+    local n = math.min(count or have, have)
+    local ok = robot.drop(sides.up, n)
     return ok or robot.count(slot) == 0
   end
 
@@ -748,8 +754,11 @@ function cell:new(cfg, logger)
         say("sweep: queen %s kept in inventory, insert her by hand", genome.describe(st))
       elseif genome.analyzed(st) and genome.isPureAny(st) then
         api.archive(e.slot, st.size or 1)
+      elseif genome.analyzed(st) then
+        api.discard(e.slot)          -- analyzed and impure: junk
       else
-        api.discard(e.slot)
+        -- never void a bee we could not read; it stays until analysis works
+        say("sweep: keeping %s, it could not be analyzed", tostring(st.label))
       end
     end
     dumpJunk()

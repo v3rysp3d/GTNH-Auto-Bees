@@ -81,21 +81,57 @@ local function makeCell(library, seed)
     housing.queen = nil
     return "done"
   end
+  --- Bees with the same genome and analysis state stack, as in game: the
+  --- offspring of each generation merge into the spare the robot holds.
+  local function sameBee(x, y)
+    return x.name == y.name and x.label == y.label and x._a == y._a and x._b == y._b
+      and (x.individual.isAnalyzed == true) == (y.individual.isAnalyzed == true)
+  end
   function cell.collect()
     local n = #outputs
-    for _, st in ipairs(outputs) do inv[freeSlot()] = st end
+    for _, st in ipairs(outputs) do
+      local merged = false
+      for s = 3, 40 do
+        local cur = inv[s]
+        if cur and sameBee(cur, st) then
+          cur.size = (cur.size or 1) + (st.size or 1)
+          merged = true
+          break
+        end
+      end
+      if not merged then inv[freeSlot()] = st end
+    end
     outputs = {}
     return n
   end
-  function cell.archive(slot, n)
+  local function split(slot, n)
     local st = inv[slot]
-    if not st then return false end
-    archived[#archived + 1] = st
-    library[#library + 1] = st   -- archived bees are fetchable again, as in ME
-    inv[slot] = nil
+    if not st then return nil end
+    local have = st.size or 1
+    n = math.min(n or have, have)
+    if n >= have then
+      inv[slot] = nil
+      return st
+    end
+    st.size = have - n
+    local piece = {}
+    for k, v in pairs(st) do piece[k] = v end
+    piece.size = n
+    return piece
+  end
+  function cell.archive(slot, n)
+    local piece = split(slot, n)
+    if not piece then return false end
+    archived[#archived + 1] = piece
+    library[#library + 1] = piece   -- archived bees are fetchable again, as in ME
     return true
   end
-  function cell.discard(slot) discarded = discarded + 1; inv[slot] = nil; return true end
+  function cell.discard(slot, n)
+    local piece = split(slot, n)
+    if not piece then return false end
+    discarded = discarded + (piece.size or 1)
+    return true
+  end
   function cell.setFoundation(block) cell.foundation = block; return true end
   function cell.setClimate(c) cell.climate = c; return true end
   function cell.event(kind, data) events[#events + 1] = { kind = kind, data = data } end
@@ -104,6 +140,14 @@ local function makeCell(library, seed)
   cell._events = events
   cell._inv = inv
   cell._discardedCount = function() return discarded end
+  return cell
+end
+
+--- A cell whose analyzer has no honey: every read fails the way the robot
+--- reports it when the honey slot is empty.
+local function makeDryCell(lib, seed)
+  local cell = makeCell(lib, seed)
+  cell.analyze = function() return false, "no honey drops reached the robot" end
   return cell
 end
 
@@ -174,4 +218,30 @@ T.run("breeder: missing library stock fails cleanly", function()
   local cell = makeCell(library({ { kind = "princess", species = "Forest" } }), 1)
   local res = breeder.run(cell, sim.job({ id = "t4", target = "Common", a = "Forest", b = "Meadows", keepDrones = 1 }))
   T.ok(not res.ok and res.reason:match("Meadows"), "reports the missing species by name: " .. tostring(res.reason))
+end)
+
+T.run("breeder: a stockpile run banks drones that merge into one stack", function()
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 1 } })
+  local cell = makeCell(lib, 21)
+  local res = breeder.run(cell, sim.job({ id = "s1", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 12, droneSupply = 16, maxGenerations = 60 }))
+  T.ok(res.ok, "stockpile ok: " .. tostring(res.reason))
+  T.ok(res.archivedDrones >= 12, "banked the drones it was asked for: " .. tostring(res.archivedDrones))
+  T.ok(res.generations <= 20, "and did it in a sane number of generations: " .. tostring(res.generations))
+  local pure = 0
+  for _, st in ipairs(cell._archived) do
+    if genome.kind(st) == "drone" and genome.isPure(st, U("Common")) then pure = pure + (st.size or 1) end
+  end
+  T.ok(pure >= 12, "pure Common drones reached the library: " .. pure)
+end)
+
+T.run("breeder: no honey stops the job instead of voiding what it cannot read", function()
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 1 } })
+  local cell = makeDryCell(lib, 5)
+  local res = breeder.run(cell, sim.job({ id = "s2", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 8, droneSupply = 16, maxGenerations = 60 }))
+  T.ok(not res.ok, "the job fails rather than looping")
+  T.ok(tostring(res.reason):find("Honey Drop", 1, true) ~= nil, "and names what it needs: " .. tostring(res.reason))
+  T.ok(cell._discardedCount() == 0, "nothing was voided: " .. tostring(cell._discardedCount()))
+  T.ok(res.generations <= 1, "it stopped straight away: " .. tostring(res.generations))
 end)

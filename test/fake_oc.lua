@@ -308,11 +308,29 @@ function fake.install(opts)
   end
   --- like OC: merge into a matching stack (non-bee items) in the preferred
   --- slot first, otherwise use the preferred slot if empty, else the first free one
+  --- Two bees stack when their genome and analysis state match, exactly as
+  --- in game. This matters: offspring merge into the stack the robot keeps
+  --- as a spare mate instead of landing in a slot of their own.
+  local function sameItem(x, y)
+    if x.label ~= y.label or x.name ~= y.name then return false end
+    local xb, yb = x.individual ~= nil, y.individual ~= nil
+    if xb ~= yb then return false end
+    if not xb then return true end
+    return x._a == y._a and x._b == y._b and x._kind == y._kind
+      and (x.individual.isAnalyzed == true) == (y.individual.isAnalyzed == true)
+  end
+
   local function invInsert(st, preferred)
-    local isBee = st.individual ~= nil
-    if preferred and world.inv[preferred] and not isBee and world.inv[preferred].label == st.label then
+    if preferred and world.inv[preferred] and sameItem(world.inv[preferred], st) then
       world.inv[preferred].size = (world.inv[preferred].size or 1) + (st.size or 1)
       return true
+    end
+    for slot = 1, world.invSize do
+      local other = world.inv[slot]
+      if other and other ~= st and sameItem(other, st) and (other.size or 1) < 64 then
+        other.size = (other.size or 1) + (st.size or 1)
+        return true
+      end
     end
     local target = (preferred and not world.inv[preferred]) and preferred or invFirstFree(3)
     if not target then return false end
@@ -369,12 +387,16 @@ function fake.install(opts)
     if st.size <= 0 then world.inv[world.selected] = nil end
     return true
   end
-  function robotLib.drop(side)
+  function robotLib.drop(side, count)
     local st = world.inv[world.selected]
     if not st then return false end
     if side == sides.up and world.level == 0 then
-      world.voided = (world.voided or 0) + (st.size or 1)
-      world.inv[world.selected] = nil
+      local have = st.size or 1
+      local n = math.min(count or have, have)
+      world.voided = (world.voided or 0) + n
+      world.voidedLabels = world.voidedLabels or {}
+      world.voidedLabels[#world.voidedLabels + 1] = string.format("%s x%d", tostring(st.label), n)
+      if n >= have then world.inv[world.selected] = nil else st.size = have - n end
       return true
     end
     return false
