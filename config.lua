@@ -115,7 +115,8 @@ local config = {
     honeyMin = 8,
     honeyFetch = 32,
 
-    startTimeout = 20,               -- seconds to wait for the queen to appear after inserting
+    startTimeout = 20,               -- seconds to wait for the machine to take the bees
+    startGrace = 90,                 -- extra seconds before calling a cycle dead when no bee was ever seen
     cycleTimeout = 900,              -- seconds a queen may work before the cell is called stuck
     requestTimeout = 90,             -- seconds to wait for the controller to stock an interface
 

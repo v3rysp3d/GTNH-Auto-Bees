@@ -1576,7 +1576,9 @@ function controller:new(cfg, logger)
     while self.running do
       local ok, err = pcall(function() self:tick() end)
       if not ok then self:warn("tick error: %s", tostring(err)) end
-      os.sleep(2)
+      -- short naps keep answers to the robots snappy; the expensive scans
+      -- inside tick() are throttled by their own timers
+      os.sleep(0.5)
     end
   end
 

@@ -236,6 +236,11 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 > Remote stations for dimension and biome-ID conditions (an Apiary, Transposer, Adapter, EnderStorage chest pair
 > and an OpenComputers P2P tunnel on a quantum-linked ME network) are planned but not supported by the code yet.
 
+### Reading the timestamps
+
+OpenComputers stamps its logs with the in-game clock, which runs 72 times faster than real time. An hour on
+screen is fifty real seconds, so a log that looks like it spent an hour on one step spent under a minute.
+
 ### When a fetch never arrives
 
 The robot waits at an ME Interface slot that the network is supposed to fill. If the log says a slot stayed

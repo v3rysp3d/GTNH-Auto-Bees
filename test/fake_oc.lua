@@ -234,7 +234,40 @@ function fake.install(opts)
     return false
   end
 
+  --- GregTech style: the machine pulls the princess and the drone straight
+  --- into its recipe, so both slots read empty while it works and nothing
+  --- resembling a queen is ever visible. Offspring appear in the chest.
+  local function gtTick()
+    local q = housing.queen
+    if q and q._kind == "princess" and housing.drone then
+      local d = housing.drone
+      housing.pending = { p = { _a = q._a, _b = q._b }, d = { _a = d._a, _b = d._b } }
+      housing.queen = nil
+      d.size = (d.size or 1) - 1
+      if d.size <= 0 then housing.drone = nil end
+      -- a real cycle outlasts the robot's start timeout, so the slots stay
+      -- empty for a good while before anything reaches the chest
+      housing.doneAt = env.clock + 30
+      housing.matings = housing.matings + 1
+    elseif housing.pending then
+      if env.clock >= (housing.doneAt or 0) then
+        local pend = housing.pending
+        housing.pending = nil
+        local princess = sim.offspring("princess", pend.p, pend.d, rng, conditionsMet)
+        princess._kind = "princess"
+        chestAdd(princess)
+        for _ = 1, 2 do
+          local drone = sim.offspring("drone", pend.p, pend.d, rng, conditionsMet)
+          drone._kind = "drone"
+          chestAdd(drone)
+        end
+        chestAdd({ name = "Forestry:beeCombs", label = "Honey Comb", size = 2 })
+      end
+    end
+  end
+
   ticks[#ticks + 1] = function()
+    if world.gtStyle then return gtTick() end
     local q = housing.queen
     if q and q._kind == "princess" and housing.drone then
       -- mate: princess + one drone -> queen

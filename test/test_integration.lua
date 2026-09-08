@@ -311,3 +311,32 @@ T.run("integration: diag reports what the robot can reach", function()
   env.side = "robot"
   T.ok(ctl.pairing == nil, "diag finished")
 end)
+
+-- A GregTech Industrial Apiary never shows a queen: it takes the princess and
+-- the drone into its recipe, leaving both slots empty while it works. Reading
+-- that as "the cycle never started" is what stalled the first run in game.
+T.run("integration: a machine that swallows the pair still completes a cycle", function()
+  env.world.gtStyle = true
+  env.world.housing.queen, env.world.housing.drone = nil, nil
+  env.side = "controller"
+
+  local before = env.world.housing.matings
+  local res = ctl:command("breed Cultivated keep 2", "test")
+  T.ok(res:match("queued"), "request accepted: " .. res)
+  local req = ctl.S.requests[#ctl.S.requests]
+
+  local rounds = 0
+  while req.status == "active" and rounds < 80 do
+    rounds = rounds + 1
+    env.side = "controller" ctl:tick()
+    env.side = "robot" cell:step()
+    env.side = "controller" ctl:tick()
+  end
+  env.side = "robot"
+
+  T.eq(req.status, "done", "request finished on a GregTech machine (" .. tostring(req.status) .. ")")
+  T.ok(env.world.housing.matings > before, "the machine actually ran cycles")
+  T.ok(env.world.housing.queen == nil and env.world.housing.drone == nil, "machine left empty")
+  local lib = ctl.library
+  T.ok(lib[U("Cultivated")] and lib[U("Cultivated")].drones >= 2, "drones archived from the GregTech run")
+end)

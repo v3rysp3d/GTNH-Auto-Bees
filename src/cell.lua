@@ -422,44 +422,126 @@ function cell:new(cfg, logger)
     return slot
   end
 
-  local function queenSlotStack()
-    local ok, st = pcall(invctl.getStackInSlot, sides.front, hs.slots.queen)
+  local function housingSize()
+    goTo(0)
+    return tonumber(invctl.getInventorySize(sides.front)) or 0
+  end
+
+  local function slotStack(slot)
+    if not slot then return nil end
+    local ok, st = pcall(invctl.getStackInSlot, sides.front, slot)
     if ok and type(st) == "table" then return st end
     return nil
   end
 
-  local function outputChestHas(kind)
-    goTo(1)
-    local size = invctl.getInventorySize(sides.front) or 0
-    for s = 1, size do
-      local st = invctl.getStackInSlot(sides.front, s)
-      if st and genome.kind(st) == kind then return true end
+  --- The queen slot number differs between housings and GregTech machines do
+  --- not always report the one we expect, so an empty configured slot falls
+  --- back to looking for a queen anywhere in the machine. What it finds is
+  --- remembered for the rest of the run.
+  local function queenSlotStack()
+    goTo(0)
+    local st = slotStack(state.queenSlot or hs.slots.queen)
+    if st then return st end
+    for slot = 1, math.min(housingSize(), 27) do
+      local other = slotStack(slot)
+      if other and genome.kind(other) == "queen" then
+        if slot ~= (state.queenSlot or hs.slots.queen) then
+          say("the queen shows up in slot %d, not %d; using that from now on", slot, hs.slots.queen)
+          state.queenSlot = slot
+          saveState()
+        end
+        return other
+      end
     end
-    return false
+    return nil
   end
 
+  local function droneSlotStack()
+    goTo(0)
+    return slotStack(hs.slots.drone)
+  end
+
+  --- What the housing holds, for the log when something does not add up.
+  local function housingContents()
+    local out = {}
+    for slot = 1, math.min(housingSize(), 27) do
+      local st = slotStack(slot)
+      if st then out[#out + 1] = string.format("%d=%s", slot, tostring(st.label)) end
+    end
+    return #out > 0 and table.concat(out, ", ") or "empty"
+  end
+
+  local function chestCount(kind)
+    goTo(1)
+    local size = invctl.getInventorySize(sides.front) or 0
+    local n = 0
+    for s = 1, size do
+      local st = invctl.getStackInSlot(sides.front, s)
+      if st and genome.kind(st) == kind then n = n + math.floor(st.size or 1) end
+    end
+    return n
+  end
+
+  local function outputChestHas(kind)
+    return chestCount(kind) > 0
+  end
+
+  --- Wait for one queen to work through her life.
+  ---
+  -- A Forestry housing mates the princess into a queen that sits in the
+  -- queen slot until she dies. A GregTech Industrial Apiary takes both bees
+  -- straight into its recipe, so its slots go empty the moment work starts
+  -- and the offspring turn up in the output chest. Both are accepted: work
+  -- has started when a queen appears or when the machine has swallowed the
+  -- pair, and it is finished when a princess lands in the chest or the queen
+  -- is gone.
   function api.waitCycle()
     goTo(0)
+    local toChest = (hs.outputs == "chest")
+    local before = toChest and chestCount("princess") or 0
+
     local t0 = util.now()
-    local started = false
+    local started, sawQueen, sawBee = false, false, false
     while util.now() - t0 < cfg.startTimeout do
       local q = queenSlotStack()
-      if q and genome.kind(q) == "queen" then started = true break end
-      if q == nil and util.now() - t0 > 4 then break end
+      if q then sawBee = true end
+      if q and genome.kind(q) == "queen" then started, sawQueen = true, true break end
+      if toChest then
+        if chestCount("princess") > before then return "done" end
+        if droneSlotStack() then sawBee = true end
+        -- inputs consumed into the recipe: the machine is working on them
+        if q == nil and droneSlotStack() == nil then started = true break end
+      end
       pump(0.25)
     end
+
     if not started then
-      if outputChestHas("princess") then return "done" end
+      if chestCount("princess") > before then return "done" end
       if outputChestHas("queen") then return "notstarted", "the queen was ejected: enable Auto-Queen on the machine" end
-      goTo(0)
-      if queenSlotStack() == nil then return "notstarted", "queen slot empty: no power, no drone, or machine disabled?" end
+      local q, d = queenSlotStack(), droneSlotStack()
+      say("housing holds: %s", housingContents())
+      if q and not d then return "notstarted", "the princess is in the machine but no drone reached it" end
+      if q then return "notstarted", "the machine is holding the bees but never started: power, or is it disabled?" end
+      return "notstarted", "queen slot empty: no power, no drone, or machine disabled?"
     end
+
     local t1 = util.now()
     local stuckSince = nil
+    -- if the bees were never seen in the machine the swap itself may have
+    -- failed, so that case gets a short grace period rather than the full
+    -- cycle timeout before it is called a failure
+    local graceUntil = (not sawBee) and (util.now() + (cfg.startGrace or 90)) or nil
     while true do
-      local q = queenSlotStack()
-      if q == nil then return "done" end
       if cancelRequested then return "cancelled" end
+      if toChest then
+        if chestCount("princess") > before then return "done" end
+        if sawQueen and queenSlotStack() == nil and chestCount("drone") > 0 then return "done" end
+        if graceUntil and util.now() > graceUntil and chestCount("drone") == 0 then
+          return "notstarted", "the bees never showed up in the machine and nothing came back; did the swap work?"
+        end
+      else
+        if queenSlotStack() == nil then return "done" end
+      end
       if hs.reportsProgress then
         local okW, canWork = pcall(beekeeper.canWork, beeSide())
         if okW and canWork == false then
