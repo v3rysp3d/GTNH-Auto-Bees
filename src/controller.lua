@@ -457,7 +457,15 @@ function controller:new(cfg, logger)
   function obj:cellFor(name)
     local c = self.cells[name]
     if not c then
-      c = { name = name, status = "unknown", lastSeen = 0, cfg = (self.cfg.cells or {})[name] or {} }
+      local cells = self.cfg.cells or {}
+      local cellCfg = cells[name]
+      if not cellCfg and util.count(cells) == 1 then
+        -- a robot named differently from the one configured cell: use that cell
+        local onlyName = util.sortedKeys(cells)[1]
+        cellCfg = cells[onlyName]
+        self:log("cell '%s' is not in the config; using the settings of '%s'", name, onlyName)
+      end
+      c = { name = name, status = "unknown", lastSeen = 0, cfg = cellCfg or {} }
       self.cells[name] = c
     end
     return c
