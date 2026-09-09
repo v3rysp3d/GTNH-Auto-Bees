@@ -127,6 +127,15 @@ T.run("climate", function()
   T.eq(climate.accepts("temperature", nil, "NONE", "Warm"), true, "an unknown preference is not held against her")
 end)
 
+T.run("util.parseKeep", function()
+  T.eq(util.parseKeep("64"), 64, "a number")
+  T.eq(util.parseKeep("forever"), -1, "forever means no limit")
+  T.eq(util.parseKeep("Infinite"), -1, "and so do its synonyms, whatever the case")
+  T.eq(util.parseKeep("unlimited"), -1, "unlimited too")
+  T.eq(util.parseKeep("banana"), nil, "anything else is unreadable")
+  T.eq(util.parseKeep(nil), nil, "as is nothing at all")
+end)
+
 T.run("genome", function()
   local drone = { name = "Forestry:beeDroneGE", label = "Common Drone", size = 2, individual = {
     type = "bee", isAnalyzed = true, isNatural = true,

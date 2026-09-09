@@ -267,6 +267,15 @@ function util.error(...) util.log(4, ...) end
 ------------------------------------------------------------------------
 util.optionWords = { keep = 1, extra = -1, princess = 0, drones = 1, cell = 1, all = 0, force = 0, want = 1 }
 
+---A drone count, where "forever" and its synonyms mean keep going until
+---told otherwise. Returns a number, -1 for no limit, or nil if unreadable.
+function util.parseKeep(word)
+  if word == nil then return nil end
+  local text = tostring(word):lower()
+  if text == "forever" or text == "infinite" or text == "unlimited" or text == "endless" then return -1 end
+  return tonumber(text)
+end
+
 function util.parseCommand(line)
   local toks = util.split(util.trim(line), "%s")
   local res = { words = {}, opts = {} }

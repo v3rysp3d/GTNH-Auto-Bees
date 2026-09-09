@@ -1167,6 +1167,7 @@ function controller:new(cfg, logger)
     if verb == "help" then
       return table.concat({
         "breed <number|name> [keep N] [extra id=N ...] [all N]   queue a species, chain included",
+        "more <number> [keep N|forever]       just make more of a bee you already have",
         "plan <number|name>     show the chain the planner would use",
         "needs <number|name>    autocraft / station needs for that chain",
         "find <text>            catalog numbers (shared names show their mod)",
@@ -1183,7 +1184,7 @@ function controller:new(cfg, logger)
       -- change what a queued or running job is working towards
       local id = w[2]
       local nRaw = (w[3] or ""):lower()
-      local n = (nRaw == "forever" or nRaw == "all") and -1 or tonumber(nRaw)
+      local n = util.parseKeep(nRaw)
       if not id or not n then return "usage: keep <job|request> <number|forever>" end
       local jobs = {}
       local req
@@ -1212,6 +1213,31 @@ function controller:new(cfg, logger)
       self:saveState()
       return string.format("%s now keeps %s drones", table.concat(names, ", "),
         n < 0 and "as many as it can, until cancelled" or tostring(n))
+    elseif verb == "more" then
+      -- just make more of something already in the library
+      local e, errM = self.cat:resolve(w[2])
+      if not e then return "error: " .. tostring(errM) end
+      local n = util.parseKeep(cmd.opts.keep) or util.parseKeep(w[3]) or 32
+      if self:dronesOf(e.uid) == 0 and self:princessesOf(e.uid) == 0 then
+        return string.format("no %s in the library yet; breed it first", self:label(e.uid))
+      end
+      if not self:canStockpile(e.uid) then
+        return string.format("%s has fertility 1 and cannot breed more of itself. Run 'improve %d' first",
+          self:label(e.uid), e.id)
+      end
+      local req = { id = self:newId("r"), target = e.uid, by = who or "gui", created = util.now(),
+        keep = n, extra = {}, status = "active", jobs = {} }
+      local job = self:stockJob(req, e.uid, n)
+      self.S.jobs[job.id] = job
+      req.jobs[1] = job.id
+      self.S.requests[#self.S.requests + 1] = req
+      self:saveState()
+      self:dispatch()
+      if n < 0 then
+        return string.format("queued %s as %s: breeding %s until you cancel it, which holds the cell",
+          self:label(e.uid), req.id, self:label(e.uid))
+      end
+      return string.format("queued %s as %s: %d more drones", self:label(e.uid), req.id, n)
     elseif verb == "purify" then
       -- breed a species with itself and hold out for drones that stack
       local e, errP = self.cat:resolve(w[2])
@@ -1224,7 +1250,7 @@ function controller:new(cfg, logger)
           self:label(e.uid), e.id)
       end
       local req = { id = self:newId("r"), target = e.uid, by = who or "gui", created = util.now(),
-        keep = tonumber(cmd.opts.keep) or 8, extra = {}, status = "active", jobs = {} }
+        keep = util.parseKeep(cmd.opts.keep) or 8, extra = {}, status = "active", jobs = {} }
       local job = self:stockJob(req, e.uid, req.keep)
       job.strictAfter = 999999             -- a purify run does not settle for less
       job.purify = true
@@ -1317,7 +1343,8 @@ function controller:new(cfg, logger)
       if verb == "breed" then
         local extra, err2 = self:parseExtras(cmd.opts.extra)
         if not extra then return "error: " .. tostring(err2) end
-        local req, info = self:addRequest(e.uid, { keep = tonumber(cmd.opts.keep), extra = extra, keepAll = tonumber(cmd.opts.all) }, who)
+        local req, info = self:addRequest(e.uid, { keep = util.parseKeep(cmd.opts.keep), extra = extra,
+          keepAll = tonumber(cmd.opts.all) }, who)
         if not req then return "cannot plan " .. self:label(e.uid) .. ": " .. tostring(info) end
         self:notify("%s queued %s: %d job(s)", who or "gui", self:label(e.uid), #req.jobs)
         local out = { string.format("queued %s as %s with %d job(s)", self:label(e.uid), req.id, #req.jobs) }

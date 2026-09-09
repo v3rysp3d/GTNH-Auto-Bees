@@ -82,6 +82,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
 | `cancel j12` / `cancel r3` | stop a job or a whole request |
+| `more 1005 keep 64` / `more 1005 keep forever` | just make more of a bee you already have |
 | `keep j12 64` / `keep r3 forever` | change what a queued or running job is working towards |
 | `scan`, `survey` | rescan the ME library, re-read the mutation graph |
 | `pair` | mark each ME interface in turn and ask the robot which one it can reach, then save the answer |
@@ -251,6 +252,13 @@ Every mating spends a drone, so the planner counts a species as owned only when 
 Princesses alone do not make a route usable, which is why a chain can reach for a species you would not expect
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
+
+### Making more of what you have
+
+`breed` on a species already in the library queues a stockpile run rather than a mutation, and `more` says the
+same thing plainly: `more 1005 keep 64`. With `keep forever` the run has no target and breeds until you cancel
+it, which also means it holds that cell, so give it one of its own if you have several. A line at fertility 1
+cannot make more of itself and is refused with a pointer at `improve`.
 
 ### More than one cell
 

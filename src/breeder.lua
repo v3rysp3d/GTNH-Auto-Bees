@@ -335,7 +335,10 @@ function breeder.run(cell, job)
   local noProgress = 0
   while true do
     if cell.cancelled() then return fail("cancelled") end
-    if state.generation >= maxGen then return fail("generation limit reached (" .. maxGen .. ")") end
+    -- a run with no drone limit is meant to go until it is cancelled
+    if keepGoal() ~= math.huge and state.generation >= maxGen then
+      return fail("generation limit reached (" .. maxGen .. ")")
+    end
 
     local princess = cell.read(state.princessSlot)
     if not princess or genome.kind(princess) ~= "princess" then

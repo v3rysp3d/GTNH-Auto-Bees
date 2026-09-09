@@ -528,3 +528,27 @@ T.run("integration: jobs go to the cell whose climate suits them", function()
   ctl.cfg.cells.cell2 = nil
   ctl.cells.cell2 = nil
 end)
+
+T.run("integration: more makes another batch of a bee already in the library", function()
+  env.side = "controller"
+  T.ok(ctl:command("more Common keep 24", "test"):find("24 more drones", 1, true), "a plain batch")
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job = ctl.S.jobs[req.jobs[1]]
+  T.eq(job.kind, "stock", "queued as a stockpile run")
+  T.eq(job.keepDrones, 24, "for the number asked")
+  ctl:command("cancel " .. req.id, "test")
+
+  T.ok(ctl:command("more Common keep forever", "test"):find("until you cancel", 1, true), "or endlessly")
+  local endless = ctl.S.requests[#ctl.S.requests]
+  T.eq(ctl.S.jobs[endless.jobs[1]].keepDrones, -1, "recorded as no limit")
+  ctl:command("cancel " .. endless.id, "test")
+
+  T.ok(ctl:command("more Noble", "test"):find("32 more drones", 1, true), "a default batch size")
+  ctl:command("cancel " .. ctl.S.requests[#ctl.S.requests].id, "test")
+  -- a species the graph knows but the library does not hold
+  local saved = ctl.library[U("Noble")]
+  ctl.library[U("Noble")] = nil
+  T.ok(ctl:command("more Noble", "test"):find("breed it first", 1, true), "a species we do not hold is refused")
+  ctl.library[U("Noble")] = saved
+  env.side = "robot"
+end)
