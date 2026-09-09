@@ -154,19 +154,7 @@ function breeder.run(cell, job)
   state.princessSlot = princessSlot
   local pst = analyzeSlot(princessSlot)
   if state.noHoney then return fail("analysis needs Honey Drop: " .. state.noHoney) end
-  -- A stockpile run mates the species with itself: each cycle yields
-  -- `fertility` drones and spends one on the next mating, so fertility 1
-  -- breaks even forever. Better to say so than to breed until the
-  -- generation limit.
-  if A == B and A == target then
-    local fert = genome.fertility(pst)
-    if fert and fert <= 1 then
-      return fail(string.format(
-        "%s has fertility %d: a cycle makes %d drone and mating spends one, so stockpiling cannot gain. " ..
-        "Add drones from a hive or breed a higher-fertility line first", nameOf(target), fert, fert))
-    end
-    state.fertility = fert
-  end
+
   if not pst or genome.kind(pst) ~= "princess" then return fail("fetched item is not a princess") end
   local princessIsA = genome.isPure(pst, A)
 
@@ -354,6 +342,19 @@ function breeder.run(cell, job)
 
     if princessPureTarget then
       setPhase("stockpile")
+      -- Now that she really is the species being stockpiled, her fertility is
+      -- the one that matters: each cycle yields that many drones and mating
+      -- spends one, so 1 breaks even forever. Reading it off whatever
+      -- princess the library happened to hand over would blame the wrong bee.
+      if A == B and A == target then
+        local fert = genome.fertility(princess)
+        if fert and fert <= 1 then
+          return fail(string.format(
+            "%s has fertility %d: a cycle makes %d drone and mating spends one, so stockpiling cannot gain. " ..
+            "Add drones from a hive or breed a higher-fertility line first", nameOf(target), fert, fert))
+        end
+        state.fertility = fert
+      end
       if state.archivedDrones >= keepGoal() then break end
       -- pure target drones give 100% pure offspring; a parent drone still
       -- yields target carriers when no target drone exists yet

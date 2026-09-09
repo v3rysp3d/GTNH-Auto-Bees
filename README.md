@@ -317,6 +317,13 @@ including routes the mods add beyond the Forestry ones. Where several routes mak
 picks by cost: better odds are cheaper, a required foundation block or climate costs extra, and a species you
 already own costs nothing to obtain. `routes 1005` prints them all and marks the one it chose.
 
+### A species is never run dry
+
+Every attempt spends a drone of each parent, and a species down to its last one is a species the planner routes
+around. `droneFloor` (4 by default) is the level below which a parent is bred back up: a chain tops up what it
+is short of before it starts, and a finished job tops up what it spent. A line that cannot multiply is not asked
+to, and only one top-up per species is ever in flight.
+
 ### Fertility 1 lines cannot be stockpiled
 
 A queen makes as many drones per cycle as her fertility allele, and mating spends one of them, so a line with

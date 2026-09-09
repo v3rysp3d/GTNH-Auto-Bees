@@ -291,6 +291,22 @@ end)
 -- cannot grow. It is still perfectly good for pushing a drone's species onto
 -- a princess, which is most of what breeding is, so only stockpiling is
 -- refused.
+-- The library had no Cultivated princess, so the run borrowed another
+-- species' princess, read her fertility and reported that Cultivated was the
+-- barren one. The check belongs on the bee actually being stockpiled.
+T.run("breeder: a borrowed princess is not mistaken for the species being stocked", function()
+  sim.fertility["Meadows"] = 1          -- the only princess going spare
+  sim.fertility["Common"] = 2           -- the species we are stockpiling
+  local lib = library({ { kind = "princess", species = "Meadows" }, { kind = "drone", species = "Common", n = 4 } })
+  local cell = makeCell(lib, 23)
+  local res = breeder.run(cell, sim.job({ id = "b1", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 2, droneSupply = 16, maxGenerations = 200 }))
+  sim.fertility["Meadows"], sim.fertility["Common"] = nil, nil
+  T.ok(not tostring(res.reason or ""):find("Common has fertility 1", 1, true),
+    "Common is not blamed for the borrowed princess: " .. tostring(res.reason))
+  T.ok(res.ok, "and the run converts her and gets on with it: " .. tostring(res.reason))
+end)
+
 T.run("breeder: fertility 1 cannot stockpile and says so", function()
   sim.fertility["Common"] = 1
   local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 1 } })
@@ -300,7 +316,7 @@ T.run("breeder: fertility 1 cannot stockpile and says so", function()
   sim.fertility["Common"] = nil
   T.ok(not res.ok, "the stockpile run stops")
   T.ok(tostring(res.reason):find("fertility 1", 1, true) ~= nil, "and names fertility: " .. tostring(res.reason))
-  T.eq(res.generations, 0, "before breeding a single generation")
+  T.ok(res.generations <= 1, "almost immediately: " .. tostring(res.generations))
 end)
 
 T.run("breeder: a fertility 1 princess still takes on the drones' species", function()

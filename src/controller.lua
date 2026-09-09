@@ -294,6 +294,31 @@ function controller:new(cfg, logger)
     }
   end
 
+  --- Keep a species from running dry. Breeding spends a drone of each parent
+  --- per attempt, and a species down to its last one is a species the planner
+  --- will route around, so it is bred back up to the floor instead.
+  function obj:topUp(uid, why)
+    local floor = (self.cfg.defaults or {}).droneFloor or 4
+    if self:dronesOf(uid) >= floor then return false end
+    if not self:canStockpile(uid) then return false end
+    if self:princessesOf(uid) == 0 and self:princessPool() == 0 then return false end
+    for _, j in pairs(self.S.jobs) do
+      if j.kind == "stock" and j.target == uid and (j.status == "pending" or j.status == "running") then
+        return false                        -- one is already on its way
+      end
+    end
+    local req = { id = self:newId("r"), target = uid, by = "auto", created = util.now(),
+      keep = floor, extra = {}, status = "active", jobs = {} }
+    local job = self:stockJob(req, uid, floor)
+    self.S.jobs[job.id] = job
+    req.jobs[1] = job.id
+    self.S.requests[#self.S.requests + 1] = req
+    self:notify("%s is down to %d drones%s; breeding it back to %d as %s",
+      self:label(uid), self:dronesOf(uid), why and (" " .. why) or "", floor, req.id)
+    self:saveState()
+    return true
+  end
+
   function obj:princessPool()
     local n = 0
     for _, b in pairs(self.library) do n = n + b.princesses + (b.unanalyzedPrincesses or 0) end
@@ -461,11 +486,13 @@ function controller:new(cfg, logger)
     for _, step in ipairs(plan.steps) do produced[step.result] = true end
     for _, step in ipairs(plan.steps) do
       for _, parent in ipairs({ step.a, step.b }) do
-        if not produced[parent] and not stocked[parent] and self:dronesOf(parent) < math.min(needed[parent] or 0, 16) then
+        local floor = d.droneFloor or 4
+        local trigger = math.max(math.min(needed[parent] or 0, 16), floor)
+        if not produced[parent] and not stocked[parent] and self:dronesOf(parent) < trigger then
           stocked[parent] = true
           -- breed only the shortfall: a stockpile run counts what it banks,
           -- so asking for the full figure repeats drones already in the library
-          local short = math.max(2, (needed[parent] or 0) - self:dronesOf(parent))
+          local short = math.max(2, math.max(needed[parent] or 0, floor) - self:dronesOf(parent))
           if not self:canStockpile(parent) then
             self:notify("%s has fertility 1 and cannot be stockpiled: add %d more drone(s) to the ME network, " ..
               "or run 'improve %d' to breed a better fertility allele onto it",
@@ -857,6 +884,10 @@ function controller:new(cfg, logger)
     if ok then
       job.status = "done"
       job.finished = util.now()
+      -- what this job spent may have taken a parent below the floor
+      for _, parent in ipairs({ job.a, job.b }) do
+        if parent and parent ~= job.target then self:topUp(parent, "after " .. job.id) end
+      end
       if job.kind == "fertility" then
         (self.lowFertility or {})[job.target] = nil
         self:scanLibrary(true)

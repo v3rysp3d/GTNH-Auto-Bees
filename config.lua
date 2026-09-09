@@ -56,6 +56,7 @@ local config = {
 
     defaults = {
       keepDrones = 8,          -- drones archived for a requested species
+      droneFloor = 4,          -- never leave a species below this many pure drones
       droneSupply = 16,        -- drones handed to a robot per fetch
       maxGenerations = 400,    -- give up on a step after this many generations
       warnAfter = 60,          -- warn after this many generations without a hit

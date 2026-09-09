@@ -552,3 +552,31 @@ T.run("integration: more makes another batch of a bee already in the library", f
   ctl.library[U("Noble")] = saved
   env.side = "robot"
 end)
+
+-- Breeding spends a drone of each parent per attempt. A species down to its
+-- last one is a species the planner routes around, so it is bred back up.
+T.run("integration: a parent species is topped up rather than run dry", function()
+  env.side = "controller"
+  local saved = ctl.library[U("Forest")]
+  ctl.library[U("Forest")] = { name = "Forest", drones = 1, princesses = 1, queens = 0, hybrids = 0,
+    unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0, fertility = 2 }
+
+  T.eq(ctl:topUp(U("Forest"), "in a test"), true, "one drone left triggers a top-up")
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job = ctl.S.jobs[req.jobs[1]]
+  T.eq(job.kind, "stock", "queued as a stockpile run")
+  T.eq(job.target, U("Forest"), "for the species that ran low")
+  T.eq(job.keepDrones, 4, "back up to the floor")
+  T.eq(ctl:topUp(U("Forest"), "again"), false, "and not queued twice")
+
+  ctl:command("cancel " .. req.id, "test")
+  ctl.library[U("Forest")].drones = 40
+  T.eq(ctl:topUp(U("Forest"), "plenty"), false, "a species with plenty is left alone")
+
+  ctl.library[U("Forest")].drones = 1
+  ctl.lowFertility = { [U("Forest")] = true }
+  T.eq(ctl:topUp(U("Forest"), "barren"), false, "and one that cannot multiply is not asked to")
+  ctl.lowFertility = {}
+  ctl.library[U("Forest")] = saved
+  env.side = "robot"
+end)
