@@ -364,3 +364,26 @@ T.run("breeder: a line that does not stack is not counted as finished", function
   for _ in pairs(prints) do n = n + 1 end
   T.eq(n, 1, "every drone it counted as finished stacks with the others")
 end)
+
+-- The controller can raise a running job's goal, so the breeder must read it
+-- fresh rather than remember what it was told at the start.
+T.run("breeder: raising the goal mid-run keeps it breeding", function()
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 3 } })
+  local cell = makeCell(lib, 17)
+  local job = sim.job({ id = "e1", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 2, droneSupply = 16, maxGenerations = 120 })
+  local raised = false
+  local realEvent = cell.event
+  cell.event = function(kind, data)
+    -- as the controller does when told "keep j1 12", mid-run
+    if kind == "gen" and not raised and (data.archived or 0) >= 2 then
+      job.keepDrones = 12
+      raised = true
+    end
+    return realEvent(kind, data)
+  end
+  local res = breeder.run(cell, job)
+  T.ok(raised, "the goal was raised while it ran")
+  T.ok(res.ok, "the run finishes: " .. tostring(res.reason))
+  T.ok(res.archivedDrones >= 12, "and it kept going to the new goal: " .. tostring(res.archivedDrones))
+end)

@@ -16,6 +16,7 @@ local graph = require("src.graph")
 local catalog = require("src.catalog")
 local conditions = require("src.conditions")
 local climate = require("src.climate")
+local housing = require("src.housing")
 local needs = require("src.needs")
 local ae2 = require("src.ae2")
 local net = require("src.net")
@@ -515,6 +516,42 @@ function controller:new(cfg, logger)
     return self:princessPool() > 0
   end
 
+  --- What a job would cost on a given cell, or nil if that cell cannot run
+  --- it. A cell standing in a swamp needs no humidifier for a damp bee and
+  --- several coolers for a cold one; the one in the desert is the reverse.
+  --- Fewer upgrades is better, and a cell that needs none is best of all.
+  function obj:cellCost(job, c)
+    local hs = housing.get(c.housing or (c.cfg or {}).housing or "gt_iapiary")
+    if not hs then return nil end
+    if not (job.needTemp or job.needHum) then return 0 end
+    if not (hs.caps or {}).climateUpgrades and not (hs.caps or {}).alvearyClimate then
+      -- this housing cannot be nudged, so the biome has to be right already
+      local base = (c.cfg or {}).base or { temp = 0.8, hum = 0.4 }
+      local sol = climate.solve({ baseTemp = base.temp, baseHum = base.hum,
+        needTemp = job.needTemp, needHum = job.needHum })
+      if not sol then return nil end
+      local n = (sol.heater or 0) + (sol.cooler or 0) + (sol.humidifier or 0) + (sol.dryer or 0)
+      if n > 0 or sol.hell then return nil end
+      return 0
+    end
+    local base = (c.cfg or {}).base or { temp = 0.8, hum = 0.4 }
+    local sol = climate.solve({ baseTemp = base.temp, baseHum = base.hum,
+      needTemp = job.needTemp, needHum = job.needHum })
+    if not sol then return nil end
+    local n = (sol.heater or 0) + (sol.cooler or 0) + (sol.humidifier or 0) + (sol.dryer or 0)
+    return n + (sol.hell and 1 or 0)
+  end
+
+  --- The idle cell that suits this job best, or nil when none can take it.
+  function obj:bestCellFor(job, idle)
+    local bestName, bestCost
+    for _, name in ipairs(idle) do
+      local cost = self:cellCost(job, self.cells[name])
+      if cost ~= nil and (bestCost == nil or cost < bestCost) then bestName, bestCost = name, cost end
+    end
+    return bestName, bestCost
+  end
+
   function obj:nextReadyJob()
     for _, req in ipairs(self.S.requests) do
       if req.status == "active" then
@@ -695,10 +732,27 @@ function controller:new(cfg, logger)
   end
 
   function obj:dispatch()
-    for name, c in pairs(self.cells) do
-      if c.status == "idle" and c.addr and not c.job then
-        local job = self:nextReadyJob()
-        if not job then return end
+    while true do
+      local idle = {}
+      for name, c in pairs(self.cells) do
+        if c.status == "idle" and c.addr and not c.job then idle[#idle + 1] = name end
+      end
+      if #idle == 0 then return end
+      table.sort(idle)
+      local job = self:nextReadyJob()
+      if not job then return end
+      local name, cost = self:bestCellFor(job, idle)
+      if not name then
+        job.status = "failed"
+        job.error = "no cell can reach that climate"
+        self:notify("%s needs a climate none of the cells can reach", job.id)
+        self:updateRequestStatus(self:requestOf(job))
+        self:saveState()
+      else
+        local c = self.cells[name]
+        if cost and cost > 0 then
+          self:log("%s goes to %s: %d climate upgrade(s) needed there", job.id, name, cost)
+        end
         local ok, why = self:prepareJob(job, c)
         if ok == "wait" then
           self:waitFor(job, why)
@@ -720,6 +774,7 @@ function controller:new(cfg, logger)
             kind = job.kind, donor = job.donor, wantFertility = job.wantFertility, strictAfter = job.strictAfter,
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
+            base = (c.cfg or {}).base,
           })
           local climateText = {}
           for k, n in pairs(job.climate or {}) do climateText[#climateText + 1] = k .. " x" .. n end
@@ -1124,6 +1179,39 @@ function controller:new(cfg, logger)
         "diag [cell]            report what the robot can reach above, below and in front",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
+    elseif verb == "keep" then
+      -- change what a queued or running job is working towards
+      local id = w[2]
+      local nRaw = (w[3] or ""):lower()
+      local n = (nRaw == "forever" or nRaw == "all") and -1 or tonumber(nRaw)
+      if not id or not n then return "usage: keep <job|request> <number|forever>" end
+      local jobs = {}
+      local req
+      for _, r in ipairs(self.S.requests) do if r.id == id then req = r end end
+      if req then
+        req.keep = n
+        for _, jid in ipairs(req.jobs) do
+          local j = self.S.jobs[jid]
+          if j and j.target == req.target and j.status ~= "done" then jobs[#jobs + 1] = j end
+        end
+      else
+        local j = self.S.jobs[id]
+        if not j then return "no job or request called " .. tostring(id) end
+        jobs[1] = j
+      end
+      if #jobs == 0 then return id .. " has nothing left to change" end
+      local names = {}
+      for _, j in ipairs(jobs) do
+        j.keepDrones = n
+        names[#names + 1] = j.id
+        local c = j.cell and self.cells[j.cell]
+        if c and c.addr and j.status == "running" then
+          self.link:send(c.addr, "update", { job = j.id, keepDrones = n })
+        end
+      end
+      self:saveState()
+      return string.format("%s now keeps %s drones", table.concat(names, ", "),
+        n < 0 and "as many as it can, until cancelled" or tostring(n))
     elseif verb == "purify" then
       -- breed a species with itself and hold out for drones that stack
       local e, errP = self.cat:resolve(w[2])

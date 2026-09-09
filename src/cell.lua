@@ -16,6 +16,7 @@ local sides = require("sides")
 
 local util = require("src.util")
 local genome = require("src.genome")
+local climate = require("src.climate")
 local breeder = require("src.breeder")
 local net = require("src.net")
 local housing = require("src.housing")
@@ -80,6 +81,16 @@ function cell:new(cfg, logger)
       end
     elseif msg.type == "cancel" then
       cancelRequested = true
+    elseif msg.type == "update" then
+      -- the running job's table is the one the breeder reads, so changing it
+      -- here changes the goal mid-run
+      local p = msg.payload or {}
+      if state.job and state.job.id == p.job and p.keepDrones then
+        state.job.keepDrones = p.keepDrones
+        saveState()
+        say("job %s: keep changed to %s", tostring(p.job),
+          tonumber(p.keepDrones) < 0 and "no limit" or tostring(p.keepDrones))
+      end
     elseif msg.type == "ping" then
       link:send(msg.remote, "pong", { name = cfg.name, job = state.job and state.job.id or nil })
     elseif msg.type == "ready" or msg.type == "fail" then
@@ -486,6 +497,48 @@ function cell:new(cfg, logger)
     return chestCount(kind) > 0
   end
 
+  ----------------------------------------------------------------------
+  -- why is she not working?
+  --
+  -- A queen that refuses to work is nearly always missing one of four
+  -- things: her flowers, the right temperature, the right air, or somewhere
+  -- to put what she makes. Her genome says what she needs and the cell knows
+  -- what it has, so the robot can name the reason instead of listing
+  -- possibilities.
+  ----------------------------------------------------------------------
+  local function diagnose(queen)
+    local reasons = {}
+    if not queen or not genome.analyzed(queen) then
+      return { "the queen could not be read" }
+    end
+    local base = state.base or cfg.base or { temp = 0.8, hum = 0.4 }
+    local haveTemp, haveHum = climate.classifyTemp(base.temp), climate.classifyHum(base.hum)
+    local temp, hum = genome.speciesClimate(queen)
+    local tTol, hTol = genome.tolerances(queen)
+    if not climate.accepts("temperature", temp, tTol, haveTemp) then
+      reasons[#reasons + 1] = string.format("she wants %s, the hive is %s", tostring(temp), tostring(haveTemp))
+    end
+    if not climate.accepts("humidity", hum, hTol, haveHum) then
+      reasons[#reasons + 1] = string.format("she wants %s air, the hive is %s", tostring(hum), tostring(haveHum))
+    end
+    local flower = genome.flowerType(queen)
+    if flower then
+      reasons[#reasons + 1] = "she needs " .. tostring(flower) .. " flowers in range"
+    end
+    local size = housingSize()
+    if size > 0 then
+      local free = false
+      for slot = 1, size do
+        if not slotStack(slot) then free = true break end
+      end
+      if not free then reasons[#reasons + 1] = "the machine has no free slot for what she makes" end
+    end
+    if #reasons == 0 then
+      reasons[1] = "nothing the robot can see: power, or an upgrade the machine wants"
+    end
+    return reasons
+  end
+
   --- Wait for one queen to work through her life.
   ---
   -- A Forestry housing mates the princess into a queen that sits in the
@@ -549,13 +602,16 @@ function cell:new(cfg, logger)
         local okW, canWork = pcall(beekeeper.canWork, beeSide())
         if okW and canWork == false then
           stuckSince = stuckSince or util.now()
-          if util.now() - stuckSince > 30 then return "timeout", "queen cannot work (flowers, climate, light?)" end
+          if util.now() - stuckSince > 30 then
+            return "timeout", "she will not work: " .. table.concat(diagnose(queenSlotStack()), "; ")
+          end
         else
           stuckSince = nil
         end
       end
       if util.now() - t1 > cfg.cycleTimeout then
-        return "timeout", "queen still working after " .. cfg.cycleTimeout .. "s (flowers? climate? power?)"
+        return "timeout", string.format("nothing after %ds: %s", cfg.cycleTimeout,
+          table.concat(diagnose(queenSlotStack()), "; "))
       end
       pump(0.5)
     end
@@ -878,6 +934,7 @@ function cell:new(cfg, logger)
     pendingJob = nil
     cancelRequested = false
     state.job = job
+    state.base = job.base or state.base
     saveState()
     say("job %s: %s + %s -> %s (keep %d)", job.id, tostring(job.a), tostring(job.b), job.target, job.keepDrones or 0)
     local okRun, res = pcall(breeder.run, api, job)

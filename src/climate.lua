@@ -55,6 +55,17 @@ function climate.tolerable(list, index, baseName, tol)
   return out
 end
 
+--- Can a bee whose species prefers `want`, with tolerance string `tol`
+--- ("BOTH_2", "UP_1", "NONE"), work where the climate is `have`?
+--- kind is "temperature" or "humidity".
+function climate.accepts(kind, want, tol, have)
+  if not want or not have then return true end
+  local list = (kind == "humidity") and climate.humidities or climate.temperatures
+  local index = (kind == "humidity") and humIndex or tempIndex
+  local set = climate.tolerable(list, index, want, climate.parseTolerance(tol))
+  return set[have] == true
+end
+
 --- Minimal number of steps (positive = heat/humidify, negative = cool/dry)
 --- to turn base value `v` into class `target` using `classify`. nil if impossible.
 local function stepsTo(v, target, classify)

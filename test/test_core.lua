@@ -119,6 +119,12 @@ T.run("climate", function()
   T.eq(sol4.humidifier, 2, "two humidifiers to Damp")
   local sol5 = climate.solve({ baseTemp = 0.8, baseHum = 0.4, needTemp = { min = "Hellish", max = "Hellish" } })
   T.eq(sol5.hell, true, "hell upgrade")
+
+  -- what a bee will put up with, which is how a stuck queen is diagnosed
+  T.eq(climate.accepts("temperature", "Normal", "BOTH_1", "Warm"), true, "one step up is tolerated")
+  T.eq(climate.accepts("temperature", "Normal", "NONE", "Warm"), false, "without tolerance it is not")
+  T.eq(climate.accepts("humidity", "Arid", "NONE", "Arid"), true, "her own climate always works")
+  T.eq(climate.accepts("temperature", nil, "NONE", "Warm"), true, "an unknown preference is not held against her")
 end)
 
 T.run("genome", function()

@@ -78,7 +78,13 @@ function breeder.run(cell, job)
   -- unanalyzed bees and used for library labels
   local names = job.names or {}
   local function nameOf(uid) return names[uid] or uid end
-  local keep = job.keepDrones or 8
+  -- read fresh every generation: the controller can raise the goal, or set
+  -- it to "keep going", while the run is in progress
+  local function keepGoal()
+    local n = tonumber(job.keepDrones) or 8
+    if n < 0 then return math.huge end
+    return n
+  end
   local maxGen = job.maxGenerations or 400
   local supply = job.droneSupply or 16
   local state = {
@@ -345,7 +351,7 @@ function breeder.run(cell, job)
 
     if princessPureTarget then
       setPhase("stockpile")
-      if state.archivedDrones >= keep then break end
+      if state.archivedDrones >= keepGoal() then break end
       -- pure target drones give 100% pure offspring; a parent drone still
       -- yields target carriers when no target drone exists yet
       wanted = { target, A, B }
@@ -415,7 +421,7 @@ function breeder.run(cell, job)
     -- Holding out for a line that breeds true is right, but not forever: past
     -- the cutoff the species-pure drones already banked are accepted, with a
     -- word about what they are.
-    if state.strict and state.pureBanked >= keep and state.generation >= (job.strictAfter or STRICT_AFTER) then
+    if state.strict and state.pureBanked >= keepGoal() and state.generation >= (job.strictAfter or STRICT_AFTER) then
       state.strict = false
       state.archivedDrones = state.pureBanked
       ev("warn", { text = string.format(
@@ -440,7 +446,7 @@ function breeder.run(cell, job)
       local waited = state.generation - since
       if waited > 0 and waited % STOCKPILE_STALL == 0 then
         ev("warn", { text = string.format("%d generations of stockpiling without banking a drone (%d of %d)",
-          waited, state.archivedDrones, keep) })
+          waited, state.archivedDrones, keepGoal()) })
       end
     end
 
@@ -452,7 +458,7 @@ function breeder.run(cell, job)
     end
     ev("gen", {
       princess = summarize(princess), drones = droneSummaries, hits = hitsThisGen,
-      archived = state.archivedDrones, keep = keep, honey = state.honeyUsed, noProgress = noProgress,
+      archived = state.archivedDrones, keep = job.keepDrones, honey = state.honeyUsed, noProgress = noProgress,
     })
     if job.warnAfter and noProgress > 0 and noProgress % job.warnAfter == 0 then
       ev("warn", { text = string.format("%d generations without a %s hit", noProgress, target) })

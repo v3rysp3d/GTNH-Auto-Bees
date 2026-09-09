@@ -82,6 +82,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
 | `cancel j12` / `cancel r3` | stop a job or a whole request |
+| `keep j12 64` / `keep r3 forever` | change what a queued or running job is working towards |
 | `scan`, `survey` | rescan the ME library, re-read the mutation graph |
 | `pair` | mark each ME interface in turn and ask the robot which one it can reach, then save the answer |
 | `diag` | report what the robot can reach above, below and in front of itself |
@@ -250,6 +251,20 @@ Every mating spends a drone, so the planner counts a species as owned only when 
 Princesses alone do not make a route usable, which is why a chain can reach for a species you would not expect
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
+
+### More than one cell
+
+Each cell declares the temperature and humidity of the biome it stands in. A job that needs a climate goes to
+the cell that needs the fewest upgrades to reach it, so a hot mutation lands in the desert cell and a cold one
+in the tundra cell rather than wherever happened to be free. A job no cell can reach fails saying so instead of
+waiting forever.
+
+### When a queen will not work
+
+A queen that refuses to work is nearly always missing her flowers, the right temperature, the right air, or
+somewhere to put what she makes. The robot compares her genome against the cell's biome and the machine's slots
+and names the reason: `she wants Hot, the hive is Normal` or `she needs flowersSnow flowers in range`. Climate
+it fixes itself with upgrades; the rest reaches you as a warning.
 
 ### Better bees win
 

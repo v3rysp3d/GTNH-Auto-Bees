@@ -483,3 +483,48 @@ T.run("integration: purify queues a run that holds out for drones that stack", f
   ctl.lowFertility = {}
   env.side = "robot"
 end)
+
+T.run("integration: a job's goal can be changed while it runs", function()
+  env.side = "controller"
+  local res = ctl:command("breed Cultivated keep 2", "test")
+  T.ok(res:match("queued"), "queued: " .. res)
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job
+  for _, jid in ipairs(req.jobs) do
+    local j = ctl.S.jobs[jid]
+    if j.target == U("Cultivated") then job = j end
+  end
+  T.ok(job ~= nil, "the target job exists")
+
+  T.ok(ctl:command("keep " .. job.id .. " 64", "test"):find("now keeps 64", 1, true), "raised on the job")
+  T.eq(job.keepDrones, 64, "the job carries the new goal")
+  T.ok(ctl:command("keep " .. req.id .. " forever", "test"):find("until cancelled", 1, true), "or set to run on")
+  T.eq(job.keepDrones, -1, "which the job records as no limit")
+  T.ok(ctl:command("keep j999 8", "test"):find("no job or request", 1, true), "an unknown id is refused")
+  ctl:command("cancel " .. req.id, "test")
+  env.side = "robot"
+end)
+
+T.run("integration: jobs go to the cell whose climate suits them", function()
+  -- a second cell standing somewhere hot and dry
+  ctl.cfg.cells.cell2 = { housing = "gt_iapiary", mainInterface = "iface-main", beeInterface = "iface-bees",
+    base = { temp = 2.0, hum = 0.15 } }
+  local c2 = ctl:cellFor("cell2")
+  c2.addr, c2.status, c2.housing, c2.lastSeen = "modem-cell2", "idle", "gt_iapiary", env.clock
+
+  local hot = { id = "jx", target = U("Common"), a = U("Forest"), b = U("Meadows"),
+    needTemp = { min = "Hot", max = "Hot" } }
+  local cold = { id = "jy", target = U("Common"), a = U("Forest"), b = U("Meadows"),
+    needTemp = { min = "Icy", max = "Icy" } }
+  local plain = { id = "jz", target = U("Common"), a = U("Forest"), b = U("Meadows") }
+
+  local hotCell = ctl:bestCellFor(hot, { "cell1", "cell2" })
+  T.eq(hotCell, "cell2", "the hot job goes to the hot cell")
+  local coldCell = ctl:bestCellFor(cold, { "cell1", "cell2" })
+  T.eq(coldCell, "cell1", "and the cold one to the temperate cell")
+  T.eq(ctl:cellCost(plain, ctl.cells.cell1), 0, "a job with no climate demand costs nothing anywhere")
+  T.ok(ctl:cellCost(hot, ctl.cells.cell2) < ctl:cellCost(hot, ctl.cells.cell1), "fewer upgrades where the biome helps")
+
+  ctl.cfg.cells.cell2 = nil
+  ctl.cells.cell2 = nil
+end)
