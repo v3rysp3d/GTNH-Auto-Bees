@@ -580,3 +580,27 @@ T.run("integration: a parent species is topped up rather than run dry", function
   ctl.library[U("Forest")] = saved
   env.side = "robot"
 end)
+
+-- Ignoble stock can be lost when it breeds, so a pristine princess is the one
+-- to hand over when the run will take any princess at all.
+T.run("integration: a pristine princess is handed over first", function()
+  env.side = "controller"
+  local savedLib = ctl.library
+  ctl.library = {
+    ["sp.plenty"] = { name = "Plenty", drones = 0, princesses = 9, unanalyzedPrincesses = 0,
+      pristinePrincesses = 0, hybrids = 0 },
+    ["sp.pristine"] = { name = "Pristine", drones = 0, princesses = 2, unanalyzedPrincesses = 0,
+      pristinePrincesses = 2, hybrids = 0 },
+  }
+  local asked
+  local realStock = ctl.me.stockIntoInterface
+  ctl.me.stockIntoInterface = function(self_, iface, slot, filter, count, dbSlot)
+    asked = filter.label
+    return realStock(self_, iface, slot, filter, count, dbSlot)
+  end
+  ctl:handleNeed(ctl.cells.cell1, { reqId = "x1", kind = "princess", count = 1 }, "modem-robot")
+  ctl.me.stockIntoInterface = realStock
+  ctl.library = savedLib
+  T.eq(asked, "Pristine Princess", "the pristine species wins over the plentiful one")
+  env.side = "robot"
+end)

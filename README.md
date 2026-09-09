@@ -274,6 +274,14 @@ somewhere to put what she makes. The robot compares her genome against the cell'
 and names the reason: `she wants Hot, the hive is Normal` or `she needs flowersSnow flowers in range`. Climate
 it fixes itself with upgrades; the rest reaches you as a warning.
 
+### Pristine before ignoble
+
+Wild stock is pristine and bred stock can be ignoble, and ignoble bees risk being lost when they breed in an
+alveary. A pristine bee therefore wins a tie: it scores higher when a mate or a spare is chosen, and when a run
+will take any princess at all, a species with pristine princesses is handed over ahead of one with more but
+ignoble. Nothing refuses ignoble stock, which breeds exactly as well and is the right thing to spend.
+`library` shows the pristine count beside the princesses.
+
 ### Better bees win
 
 Between two mates of the same species, the better genetics are chosen: faster production, higher fertility,

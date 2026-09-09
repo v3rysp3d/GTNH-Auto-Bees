@@ -33,7 +33,8 @@ function sim.mkBee(kind, a1, a2, analyzed, fa, fb)
   local kindName = kind == "princess" and "Princess" or (kind == "queen" and "Queen" or "Drone")
   local st = {
     name = "Forestry:bee" .. kindName .. "GE", label = active .. " " .. kindName, size = 1,
-    individual = { type = "bee", isAnalyzed = false, displayName = active, isNatural = true },
+    individual = { type = "bee", isAnalyzed = false, displayName = active,
+      isNatural = sim.ignoble[a] ~= true },
   }
   st._a, st._b = a, b
   -- fertility is an allele of its own, inherited independently of species;
@@ -43,6 +44,9 @@ function sim.mkBee(kind, a1, a2, analyzed, fa, fb)
   if analyzed then sim.analyze(st) end
   return st
 end
+
+--- Species whose stock is ignoble rather than pristine, for tests.
+sim.ignoble = {}
 
 --- Drones a queen of a species makes per cycle; 2 unless a test says
 --- otherwise. Some real bees have 1, which means a line cannot grow.

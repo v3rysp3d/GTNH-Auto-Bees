@@ -139,7 +139,8 @@ function ae2:library()
   local lib = {}
   local function bucket(key, name)
     lib[key] = lib[key] or { name = name, drones = 0, princesses = 0, queens = 0, hybrids = 0,
-      unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0, fertility = nil }
+      unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0, fertility = nil,
+      pristinePrincesses = 0 }
     return lib[key]
   end
   for _, st in ipairs(self:bees()) do
@@ -150,7 +151,10 @@ function ae2:library()
       local b = bucket("name:" .. name, name)
       b.unanalyzed = b.unanalyzed + n
       if kind == "drone" then b.unanalyzedDrones = b.unanalyzedDrones + n
-      elseif kind == "princess" then b.unanalyzedPrincesses = b.unanalyzedPrincesses + n end
+      elseif kind == "princess" then
+        b.unanalyzedPrincesses = b.unanalyzedPrincesses + n
+        if genome.isPristine(st) then b.pristinePrincesses = b.pristinePrincesses + n end
+      end
     else
       local b = bucket(genome.active(st), genome.activeName(st))
       -- the best fertility on record: one bee of a line with fertility 2 is
@@ -159,7 +163,9 @@ function ae2:library()
       if fert and fert > (b.fertility or 0) then b.fertility = fert end
       if not genome.isPureAny(st) then b.hybrids = b.hybrids + n
       elseif kind == "drone" then b.drones = b.drones + n
-      elseif kind == "princess" then b.princesses = b.princesses + n
+      elseif kind == "princess" then
+        b.princesses = b.princesses + n
+        if genome.isPristine(st) then b.pristinePrincesses = b.pristinePrincesses + n end
       elseif kind == "queen" then b.queens = b.queens + n end
     end
   end

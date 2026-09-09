@@ -165,6 +165,12 @@ T.run("genome", function()
     nocturnal = true, tolerantFlyer = true, caveDwelling = true, effect = "forestry.effectBeatific" })
   local worse = bee({ speed = "Slowest", fertility = 1, lifespan = "Longest", effect = "forestry.effectRadioactive" })
   T.ok(genome.quality(better) > genome.quality(plain), "better traits score higher")
+  local pristine = bee({ speed = "Normal", fertility = 2, lifespan = "Normal" })
+  pristine.individual.isNatural = true
+  plain.individual.isNatural = false
+  T.eq(genome.isPristine(pristine), true, "natural stock is pristine")
+  T.eq(genome.isPristine(plain), false, "and ignoble stock is not")
+  T.ok(genome.quality(pristine) > genome.quality(plain), "pristine outranks ignoble, all else equal")
   T.ok(genome.quality(plain) > genome.quality(worse), "and a slow radioactive bee scores lowest")
   T.ok(genome.quality(bee({ speed = "Slowest" })) < genome.quality(bee({ speed = "Slow" })),
     "slowest is read as worse than slow, not as a match for it")

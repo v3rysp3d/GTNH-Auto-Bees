@@ -208,7 +208,15 @@ genome.effectRank = {
   none = 0, beatific = 2, fertile = 3, heroic = 3, exploration = 2, snowing = 1, creeper = -2,
 }
 
+--- Pristine stock, which Forestry marks natural. Ignoble bees can be lost
+--- when they breed, so a pristine one is the better bee to work with.
+function genome.isPristine(stack)
+  if not genome.isBee(stack) then return false end
+  return stack.individual.isNatural == true
+end
+
 genome.traitWeights = {
+  pristine = 3,     -- pristine rather than ignoble
   speed = 3,        -- faster production
   fertility = 4,    -- more drones per cycle, and a line that can grow
   lifespan = -1,    -- shorter lives mean quicker generations
@@ -245,6 +253,7 @@ function genome.quality(stack, weights)
   if a.tolerantFlyer then score = score + (w.tolerantFlyer or 0) end
   if a.caveDwelling then score = score + (w.caveDwelling or 0) end
   score = score + (w.effect or 0) * rankOf(genome.effectRank, a.effect, 0)
+  if genome.isPristine(stack) then score = score + (w.pristine or 0) end
   return score
 end
 

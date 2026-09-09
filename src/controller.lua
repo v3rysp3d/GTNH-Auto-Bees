@@ -833,11 +833,14 @@ function controller:new(cfg, logger)
       local slot = (p.kind == "princess") and slots.bees.princess or slots.bees.drone
       local name = p.name or (p.species and self:nameOf(p.species))
       if not name then
-        -- any princess: the species with the most princesses, analyzed or not
-        local bestName, bestN = nil, 0
+        -- any princess: pristine stock first, since ignoble bees can be lost
+        -- when they breed, then whichever species has the most to spare
+        local bestName, bestN, bestPristine = nil, 0, false
         for _, b in pairs(self.library) do
           local n = (b.princesses or 0) + (b.unanalyzedPrincesses or 0)
-          if n > bestN and b.name then bestName, bestN = b.name, n end
+          local pristine = (b.pristinePrincesses or 0) > 0
+          local better = (pristine and not bestPristine) or (pristine == bestPristine and n > bestN)
+          if n > 0 and b.name and better then bestName, bestN, bestPristine = b.name, n, pristine end
         end
         if not bestName then return fail("no princesses in the library") end
         name = bestName
@@ -1454,7 +1457,8 @@ function controller:new(cfg, logger)
             out[#out + 1] = string.format("%-30s unanalyzed %d (drones %d, princesses %d)", name, b.unanalyzed,
               b.unanalyzedDrones or 0, b.unanalyzedPrincesses or 0)
           else
-            out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s%s", self:label(key), b.drones, b.princesses,
+            out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s%s%s", self:label(key), b.drones, b.princesses,
+              (b.pristinePrincesses or 0) > 0 and string.format(" (%d pristine)", b.pristinePrincesses) or "",
               b.fertility and string.format("  fertility %d%s", b.fertility, b.fertility <= 1 and " (cannot stockpile)" or "") or "",
               b.hybrids > 0 and string.format("  (+%d hybrid)", b.hybrids) or "")
           end
