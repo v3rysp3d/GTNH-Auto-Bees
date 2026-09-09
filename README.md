@@ -75,6 +75,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `breed 4137 extra 4051=64 4060=32` | also stockpile intermediates |
 | `breed 4137 all 16` | keep 16 drones of every intermediate |
 | `plan 4137` | show the steps, chances and conditions the planner picked |
+| `routes 1005` | every mutation that makes a species, marking the one the planner picked |
 | `needs 4137` | foundation blocks, climate upgrades and stations for that chain, with stock status |
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
@@ -240,6 +241,13 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 
 OpenComputers stamps its logs with the in-game clock, which runs 72 times faster than real time. An hour on
 screen is fifty real seconds, so a log that looks like it spent an hour on one step spent under a minute.
+
+### Why it picked those parents
+
+The mutation list is read out of your own game with `getBeeParents`, so it holds whatever your pack defines,
+including routes the mods add beyond the Forestry ones. Where several routes make the same bee, the planner
+picks by cost: better odds are cheaper, a required foundation block or climate costs extra, and a species you
+already own costs nothing to obtain. `routes 1005` prints them all and marks the one it chose.
 
 ### Why it breeds a parent species first
 

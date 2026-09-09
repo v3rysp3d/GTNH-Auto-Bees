@@ -997,12 +997,40 @@ function controller:new(cfg, logger)
         "plan <number|name>     show the chain the planner would use",
         "needs <number|name>    autocraft / station needs for that chain",
         "find <text>            catalog numbers (shared names show their mod)",
+        "routes <number>        every mutation that makes a species, and which one the planner picked",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
         "pair [cell]            find out which ME interface is which by marking them for the robot",
         "diag [cell]            report what the robot can reach above, below and in front",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
+    elseif verb == "routes" then
+      -- every mutation the game reports for this species, so the route the
+      -- planner picked can be compared with the ones it passed over
+      local e, errR = self.cat:resolve(w[2])
+      if not e then return "error: " .. tostring(errR) end
+      local idxs = self.graph.byResult[e.uid] or {}
+      if #idxs == 0 then
+        return self:label(e.uid) .. " is not the result of any mutation: it comes from wild hives"
+      end
+      local chosen = {}
+      local plan = self:planFor(e.uid)
+      for _, step in ipairs(plan and plan.steps or {}) do
+        if step.result == e.uid then chosen[step.mutation] = true end
+      end
+      local list = {}
+      for _, idx in ipairs(idxs) do list[#list + 1] = { idx = idx, m = self.graph.mutations[idx] } end
+      table.sort(list, function(x, y) return (x.m.chance or 0) > (y.m.chance or 0) end)
+      local out = { string.format("%d route(s) to %s:", #list, self:label(e.uid)) }
+      for _, entry in ipairs(list) do
+        local m = entry.m
+        local cond = conditions.describeAll(m.conds or {})
+        out[#out + 1] = string.format("%s %s + %s  %s%%  (you have %d and %d drones)%s",
+          chosen[entry.idx] and "->" or "  ", self:label(m.a), self:label(m.b), tostring(m.chance or 0),
+          self:dronesOf(m.a), self:dronesOf(m.b), cond ~= "-" and ("  needs " .. cond) or "")
+      end
+      out[#out + 1] = "-> marks the route the planner picked; it prefers what you already own and the better odds"
+      return table.concat(out, "\n")
     elseif verb == "pair" then
       return self:startPairing(w[2], false)
     elseif verb == "diag" then
