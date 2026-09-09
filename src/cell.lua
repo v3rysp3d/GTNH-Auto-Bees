@@ -580,18 +580,34 @@ function cell:new(cfg, logger)
     return n
   end
 
+  --- Hand `count` items to the bee-library interface. The drop call can
+  --- report success without moving anything, so what actually left the
+  --- robot's slot is what counts: a bee that never reached the network is
+  --- a bee the controller will never see.
   function api.archive(slot, count)
     goTo(-1)
     robot.select(slot)
-    local ok = invctl.dropIntoSlot(sides.down, cfg.interface.bees.archive, count)
-    if not ok then
-      for s = 1, 9 do
-        if s ~= cfg.interface.bees.princess and s ~= cfg.interface.bees.drone then
-          if invctl.dropIntoSlot(sides.down, s, count) then ok = true break end
-        end
+    local before = robot.count(slot)
+    if before == 0 then return false, "nothing in that slot" end
+    local n = math.min(count or before, before)
+    local tried = { cfg.interface.bees.archive }
+    for s = 1, 9 do
+      if s ~= cfg.interface.bees.princess and s ~= cfg.interface.bees.drone and s ~= cfg.interface.bees.archive then
+        tried[#tried + 1] = s
       end
     end
-    return ok
+    for _, s in ipairs(tried) do
+      invctl.dropIntoSlot(sides.down, s, n)
+      local moved = before - robot.count(slot)
+      if moved > 0 then
+        if s ~= cfg.interface.bees.archive then
+          say("archive: slot %d would not take it, used slot %d instead", cfg.interface.bees.archive, s)
+        end
+        return true, moved
+      end
+    end
+    say("archive FAILED: the interface below the robot took nothing. Is it full, or is every slot configured?")
+    return false, "the bee interface accepted nothing"
   end
 
   --- Junk bees never go back into the ME network (the library would hand

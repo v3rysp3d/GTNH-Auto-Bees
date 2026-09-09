@@ -390,7 +390,10 @@ function controller:new(cfg, logger)
       for _, parent in ipairs({ step.a, step.b }) do
         if not produced[parent] and not stocked[parent] and self:dronesOf(parent) < math.min(needed[parent] or 0, 16) then
           stocked[parent] = true
-          local sj = self:stockJob(req, parent, needed[parent])
+          -- breed only the shortfall: a stockpile run counts what it banks,
+          -- so asking for the full figure repeats drones already in the library
+          local short = math.max(2, (needed[parent] or 0) - self:dronesOf(parent))
+          local sj = self:stockJob(req, parent, short)
           S.jobs[sj.id] = sj
           req.jobs[#req.jobs + 1] = sj.id
         end

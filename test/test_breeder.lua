@@ -245,3 +245,20 @@ T.run("breeder: no honey stops the job instead of voiding what it cannot read", 
   T.ok(cell._discardedCount() == 0, "nothing was voided: " .. tostring(cell._discardedCount()))
   T.ok(res.generations <= 1, "it stopped straight away: " .. tostring(res.generations))
 end)
+
+-- Nineteen generations produced Rocky drones and the network held none of
+-- them: the handover to the library was failing and nothing checked.
+T.run("breeder: a library that takes nothing stops the run instead of grinding", function()
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 1 } })
+  local cell = makeCell(lib, 3)
+  local realArchive = cell.archive
+  cell.archive = function(slot, n)
+    if genome.kind(cell.read(slot)) == "drone" then return false, "the bee interface accepted nothing" end
+    return realArchive(slot, n)
+  end
+  local res = breeder.run(cell, sim.job({ id = "s3", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 8, droneSupply = 16, maxGenerations = 200 }))
+  T.ok(not res.ok, "the job stops")
+  T.ok(tostring(res.reason):find("interface", 1, true) ~= nil, "and blames the handover: " .. tostring(res.reason))
+  T.ok(res.generations <= 6, "without burning generations: " .. tostring(res.generations))
+end)

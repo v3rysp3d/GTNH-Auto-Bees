@@ -47,6 +47,9 @@ local SPARE_MATES = 4
 --- it is treated as broken rather than unlucky.
 local STOCKPILE_STALL = 15
 
+--- Handovers to the library that may fail before the job gives up.
+local ARCHIVE_FAILURES = 3
+
 local function summarize(stack) return genome.summary(stack) end
 
 --- How good is this drone as a mate for reaching species `uid` (display `name`)?
@@ -246,9 +249,13 @@ function breeder.run(cell, job)
     end
 
     trimToSpare(groups.target, SPARE_MATES, function(e, n)
-      if cell.archive(e.slot, n) then
-        state.archivedDrones = state.archivedDrones + n
+      local ok, moved = cell.archive(e.slot, n)
+      if ok then
+        state.archivedDrones = state.archivedDrones + (tonumber(moved) or n)
+        state.archiveFailures = 0
         state.fetchMissed[target] = nil -- the library holds target drones now
+      else
+        state.archiveFailures = (state.archiveFailures or 0) + 1
       end
     end)
     trimToSpare(groups.hybrid, 0, function(e, n) cell.discard(e.slot, n) end)
@@ -352,6 +359,12 @@ function breeder.run(cell, job)
 
     local bankedBefore = state.archivedDrones
     cleanup(state.princessSlot)
+    -- Drones that cannot be handed over pile up in the robot and the run
+    -- makes no progress no matter how many generations it burns.
+    if (state.archiveFailures or 0) >= ARCHIVE_FAILURES then
+      return fail("the bee interface would not take the drones " .. state.archiveFailures ..
+        " times: check that the interface below the robot is on the ME network and has a free slot")
+    end
     -- A stockpile run can legitimately bank nothing for a while, waiting for
     -- a pure target drone to appear. Grinding for a long time without the
     -- count moving is worth saying out loud, though: that is what a silent

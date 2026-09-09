@@ -265,11 +265,18 @@ T.run("integration: pairing finds the swapped interfaces and saves the fix", fun
   os.remove(settingsLib.path)
   ctl.settingsData = settingsLib.load()
 
-  -- leave the cell idle: an earlier test dispatched a job that never ran
-  if ctl.cells.cell1.job then ctl:command("cancel " .. ctl.cells.cell1.job, "test") end
-  cell:step()
-  ctl:tick()
+  me.add({ name = "Forestry:honeyDrop", label = "Honey Drop", size = 400 })
+  -- pairing needs an idle robot: stop whatever earlier tests left running
+  for _, req in ipairs(ctl.S.requests) do
+    if req.status == "active" then ctl:command("cancel " .. req.id, "test") end
+  end
+  for _ = 1, 20 do
+    if not ctl.cells.cell1.job then break end
+    env.side = "robot" cell:step()
+    env.side = "controller" ctl:tick()
+  end
   ctl.cells.cell1.job = nil
+  env.side = "robot"
 
   ctl.cfg.cells.cell1.beeInterface = "iface-main"   -- swapped on purpose
   ctl.cfg.cells.cell1.mainInterface = "iface-bees"
@@ -278,6 +285,7 @@ T.run("integration: pairing finds the swapped interfaces and saves the fix", fun
   env.side = "controller"
   local started = ctl:command("pair", "test")
   T.ok(started:find("pairing cell1", 1, true), "pair starts: " .. started)
+
 
   for _ = 1, 60 do
     if not ctl.pairing then break end
@@ -349,4 +357,21 @@ T.run("integration: a machine that swallows the pair still completes a cycle", f
   T.ok(env.world.housing.queen == nil and env.world.housing.drone == nil, "machine left empty")
   local lib = ctl.library
   T.ok(lib[U("Cultivated")] and lib[U("Cultivated")].drones >= 2, "drones archived from the GregTech run")
+end)
+
+T.run("integration: a stockpile job only breeds the shortfall", function()
+  -- 40 Forest drones are already banked, so a chain needing 11 of them
+  -- should not queue a job to breed 11 more
+  local before = ctl:dronesOf(U("Forest"))
+  T.ok(before >= 11, "the library already holds Forest drones: " .. before)
+  local res = ctl:command("breed Cultivated keep 2", "test")
+  T.ok(res:match("queued"), "queued: " .. res)
+  local req = ctl.S.requests[#ctl.S.requests]
+  for _, jid in ipairs(req.jobs) do
+    local j = ctl.S.jobs[jid]
+    if j.kind == "stock" then
+      T.ok(j.keepDrones <= math.max(2, 11 - before), "stock job sized to the shortfall: " .. tostring(j.keepDrones))
+    end
+  end
+  ctl:command("cancel " .. req.id, "test")
 end)

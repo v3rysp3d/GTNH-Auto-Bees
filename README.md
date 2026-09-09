@@ -256,6 +256,13 @@ attempts, so a request first queues a stockpile job for any parent the library i
 species with itself until it has banked enough drones. The `cells` line shows how far along it is, as
 `archived 4/11`. If the count sits still for many generations the log says so.
 
+### When drones are bred but never stored
+
+Each generation hands its surplus drones to the ME interface below the robot. If that interface takes nothing,
+the drones stay in the robot and the run makes no progress however long it goes. The robot tries every free
+slot, says which one it used, and after three failed handovers the job stops with `the bee interface would not
+take the drones`. Check that the interface is on the ME network, has a channel, and is not full.
+
 ### Honey drops are not optional
 
 Every offspring is analyzed before the robot can tell a mutation from junk, and analysis costs one Honey Drop.
