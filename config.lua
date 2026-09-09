@@ -113,6 +113,10 @@ local config = {
     housing = "gt_iapiary",
 
     slots = { honey = 1, scratch = 2, firstWork = 3 },   -- robot inventory layout
+    -- Hybrids are dropped, because one carries the same label as a pure bee
+    -- and the network would hand it back on the next fetch. Set this true to
+    -- keep them in the ME network instead and sort them out yourself.
+    keepJunk = false,
     honeyMin = 8,
     honeyFetch = 32,
 

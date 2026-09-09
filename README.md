@@ -77,6 +77,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `plan 4137` | show the steps, chances and conditions the planner picked |
 | `routes 1005 [all]` | every mutation that makes a species, best odds first, marking the one the planner picked |
 | `improve 2078 want 2` | breed a better fertility allele onto a species, using a donor from the library |
+| `purify 1005 keep 8` | breed a species with itself until its drones stack, holding out rather than settling |
 | `needs 4137` | foundation blocks, climate upgrades and stations for that chain, with stock status |
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
@@ -250,6 +251,14 @@ Princesses alone do not make a route usable, which is why a chain can reach for 
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
 
+### Better bees win
+
+Between two mates of the same species, the better genetics are chosen: faster production, higher fertility,
+working at night, in the rain and underground, and a beneficial effect over a harmful one. Shorter lives count
+in favour too, since a shorter cycle means a quicker generation. The weights sit in `genome.traitWeights`.
+`purify <species>` breeds a species with itself for that reason alone, holding out until its drones stack
+instead of settling for species purity.
+
 ### Finished means the drones stack
 
 A bee is done when its drones pile into one stack, which happens only when every chromosome carries the same
@@ -263,8 +272,11 @@ the card notes that the drones do not all stack.
 
 A princess carrying the target mated with a parent drone can mutate into the step *after* the one being bred, so
 chasing Common turns up the occasional Cultivated. Any bee that is pure of any species goes to the library,
-whatever the job was for, and the log says what turned up. Only hybrids, which are junk once their line is
-finished, are voided.
+whatever the job was for, and the log says what turned up.
+
+Only hybrids are dropped, and only because a hybrid carries the same label as a pure bee of its active species:
+put one in the network and the next fetch may hand it straight back, which costs a cycle to reject. Set
+`keepJunk = true` in the cell config to keep them anyway and sort them out yourself.
 
 ### Odds are weighed against your stock
 

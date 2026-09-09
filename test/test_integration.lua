@@ -466,3 +466,20 @@ T.run("integration: the planner favours the route the stock can finish", functio
 
   ctl.library[U("Common")], ctl.library[U("Rocky")], ctl.lowFertility = savedCommon, savedRocky, savedLow
 end)
+
+T.run("integration: purify queues a run that holds out for drones that stack", function()
+  env.side = "controller"
+  local out = ctl:command("purify Cultivated keep 4", "test")
+  T.ok(out:find("until 4 drones stack", 1, true), "purify queued: " .. out)
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job = ctl.S.jobs[req.jobs[1]]
+  T.eq(job.kind, "stock", "it is a stockpile run against itself")
+  T.eq(job.a, job.b, "both parents are the species itself")
+  T.ok(job.strictAfter > 1000, "and it does not settle for species-pure drones")
+  ctl:command("cancel " .. req.id, "test")
+
+  ctl.lowFertility = { [U("Cultivated")] = true }
+  T.ok(ctl:command("purify Cultivated", "test"):find("fertility 1", 1, true), "a line that cannot multiply is refused")
+  ctl.lowFertility = {}
+  env.side = "robot"
+end)

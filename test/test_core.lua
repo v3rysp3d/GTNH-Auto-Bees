@@ -137,6 +137,22 @@ T.run("genome", function()
   T.eq(genome.displaySpecies(drone), "Common", "display")
   T.eq(genome.fertility(drone), 2, "fertility read from the active allele")
   T.eq(genome.isHomozygous(drone), false, "a hybrid does not breed true")
+
+  -- traits worth having: faster production, more fertility, night, rain, caves
+  local function bee(traits)
+    local a = { species = { name = "Common", uid = "forestry.speciesCommon" } }
+    for k, v in pairs(traits) do a[k] = v end
+    return { name = "Forestry:beeDroneGE", label = "Common Drone", size = 1,
+      individual = { type = "bee", isAnalyzed = true, active = a, inactive = a } }
+  end
+  local plain = bee({ speed = "Normal", fertility = 2, lifespan = "Normal" })
+  local better = bee({ speed = "Fastest", fertility = 4, lifespan = "Shortest",
+    nocturnal = true, tolerantFlyer = true, caveDwelling = true, effect = "forestry.effectBeatific" })
+  local worse = bee({ speed = "Slowest", fertility = 1, lifespan = "Longest", effect = "forestry.effectRadioactive" })
+  T.ok(genome.quality(better) > genome.quality(plain), "better traits score higher")
+  T.ok(genome.quality(plain) > genome.quality(worse), "and a slow radioactive bee scores lowest")
+  T.ok(genome.quality(bee({ speed = "Slowest" })) < genome.quality(bee({ speed = "Slow" })),
+    "slowest is read as worse than slow, not as a match for it")
   local twin = { name = "Forestry:beeDroneGE", label = "Common Drone", size = 1, individual = {
     type = "bee", isAnalyzed = true,
     active = { species = { name = "Common", uid = "forestry.speciesCommon" }, fertility = 2, speed = "slowest" },

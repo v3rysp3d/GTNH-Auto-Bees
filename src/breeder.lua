@@ -62,9 +62,11 @@ local function mateScore(stack, uid, name)
     return genome.displaySpecies(stack) == name and 1 or 0
   end
   -- A mate whose alleles all match passes them on whole, which is how a line
-  -- converges on drones that stack.
-  if genome.isPure(stack, uid) then return genome.isHomozygous(stack) and 4 or 3 end
-  if genome.hasSpecies(stack, uid) then return 2 end
+  -- converges on drones that stack. Between equals, the better traits win:
+  -- faster production, more fertility, night and rain and cave work.
+  local edge = genome.quality(stack) / 1000
+  if genome.isPure(stack, uid) then return (genome.isHomozygous(stack) and 4 or 3) + edge end
+  if genome.hasSpecies(stack, uid) then return 2 + edge end
   return 0
 end
 
@@ -271,6 +273,8 @@ function breeder.run(cell, job)
         -- a bee that breeds true is worth holding on to over one that does not
         local hx, hy = genome.isHomozygous(x.stack) and 1 or 0, genome.isHomozygous(y.stack) and 1 or 0
         if hx ~= hy then return hx > hy end
+        local qx, qy = genome.quality(x.stack), genome.quality(y.stack)
+        if qx ~= qy then return qx > qy end     -- keep the better traits as the spare
         return (x.stack.size or 1) > (y.stack.size or 1)
       end)
       return list

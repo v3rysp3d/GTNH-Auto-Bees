@@ -191,6 +191,63 @@ function genome.isHomozygous(stack)
   return true
 end
 
+----------------------------------------------------------------------
+-- trait quality
+--
+-- Two bees of the same species are not equally good: production speed,
+-- fertility, working at night, in the rain and without a view of the sky all
+-- make a hive worth more, and a few effects are worth avoiding. Alleles come
+-- back as names ("Fastest", "forestry.speedFastest"), so they are matched by
+-- substring and ranked.
+----------------------------------------------------------------------
+genome.speedRank = { slowest = 1, slower = 2, slow = 3, normal = 4, fast = 5, faster = 6, fastest = 7, blinding = 8 }
+genome.lifespanRank = { shortest = 1, shorter = 2, short = 3, shortened = 4, normal = 5,
+  long = 6, elongated = 7, longer = 8, longest = 9 }
+genome.effectRank = {
+  radioactive = -6, ignition = -4, explorer = -1, aggressive = -3, misanthrope = -3, glacial = -3,
+  none = 0, beatific = 2, fertile = 3, heroic = 3, exploration = 2, snowing = 1, creeper = -2,
+}
+
+genome.traitWeights = {
+  speed = 3,        -- faster production
+  fertility = 4,    -- more drones per cycle, and a line that can grow
+  lifespan = -1,    -- shorter lives mean quicker generations
+  nocturnal = 2,    -- works at night
+  tolerantFlyer = 2,-- works in the rain
+  caveDwelling = 2, -- works underground
+  effect = 2,
+}
+
+local function rankOf(ranks, value, default)
+  if value == nil then return default or 0 end
+  local text = tostring(value):lower()
+  local bestKey, bestRank
+  for key, rank in pairs(ranks) do
+    -- the longest match wins, so "slowest" is not read as "slow"
+    if text:find(key, 1, true) and (bestKey == nil or #key > #bestKey) then
+      bestKey, bestRank = key, rank
+    end
+  end
+  if bestRank == nil then return default or 0 end
+  return bestRank
+end
+
+---A number for how good this bee's expressed traits are. Higher is better.
+function genome.quality(stack, weights)
+  if not genome.analyzed(stack) then return 0 end
+  local a = stack.individual.active
+  local w = weights or genome.traitWeights
+  local score = 0
+  score = score + (w.speed or 0) * rankOf(genome.speedRank, a.speed, 4)
+  score = score + (w.fertility or 0) * (tonumber(a.fertility) or 2)
+  score = score + (w.lifespan or 0) * rankOf(genome.lifespanRank, a.lifespan, 5)
+  if a.nocturnal then score = score + (w.nocturnal or 0) end
+  if a.tolerantFlyer then score = score + (w.tolerantFlyer or 0) end
+  if a.caveDwelling then score = score + (w.caveDwelling or 0) end
+  score = score + (w.effect or 0) * rankOf(genome.effectRank, a.effect, 0)
+  return score
+end
+
 function genome.flowerType(stack)
   if not genome.analyzed(stack) then return nil end
   return stack.individual.active.flowerProvider

@@ -717,7 +717,7 @@ function controller:new(cfg, logger)
           c.gen, c.phase = 0, "prepare"
           self.link:send(c.addr, "job", {
             id = job.id, target = job.target, a = job.a, b = job.b, names = job.names, chance = job.chance,
-            kind = job.kind, donor = job.donor, wantFertility = job.wantFertility,
+            kind = job.kind, donor = job.donor, wantFertility = job.wantFertility, strictAfter = job.strictAfter,
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
           })
@@ -1117,12 +1117,36 @@ function controller:new(cfg, logger)
         "find <text>            catalog numbers (shared names show their mod)",
         "routes <number>        every mutation that makes a species, and which one the planner picked",
         "improve <number> [want 2] [keep 4]   breed a better fertility allele onto a species",
+        "purify <number> [keep 8]             breed a species with itself until its drones stack",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
         "pair [cell]            find out which ME interface is which by marking them for the robot",
         "diag [cell]            report what the robot can reach above, below and in front",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
+    elseif verb == "purify" then
+      -- breed a species with itself and hold out for drones that stack
+      local e, errP = self.cat:resolve(w[2])
+      if not e then return "error: " .. tostring(errP) end
+      if self:dronesOf(e.uid) == 0 then
+        return string.format("no %s drones in the library to breed from", self:label(e.uid))
+      end
+      if not self:canStockpile(e.uid) then
+        return string.format("%s has fertility 1: it cannot breed more of itself. Run 'improve %d' first",
+          self:label(e.uid), e.id)
+      end
+      local req = { id = self:newId("r"), target = e.uid, by = who or "gui", created = util.now(),
+        keep = tonumber(cmd.opts.keep) or 8, extra = {}, status = "active", jobs = {} }
+      local job = self:stockJob(req, e.uid, req.keep)
+      job.strictAfter = 999999             -- a purify run does not settle for less
+      job.purify = true
+      self.S.jobs[job.id] = job
+      req.jobs[1] = job.id
+      self.S.requests[#self.S.requests + 1] = req
+      self:saveState()
+      self:dispatch()
+      return string.format("queued %s as %s: breeding it with itself until %d drones stack",
+        self:label(e.uid), req.id, req.keep)
     elseif verb == "improve" then
       local e, errI = self.cat:resolve(w[2])
       if not e then return "error: " .. tostring(errI) end

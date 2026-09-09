@@ -613,12 +613,28 @@ function cell:new(cfg, logger)
   --- Junk bees never go back into the ME network (the library would hand
   --- them out again). They are dropped into the air above the parking spot
   --- and despawn.
-  ---Void `count` items from `slot` (the whole stack when count is nil).
+  ---Get rid of `count` items from `slot` (the whole stack when count is nil).
+  ---
+  ---Only hybrids reach here: every pure bee is archived, whatever species it
+  ---is. A hybrid carries the same label as a pure bee of its active species,
+  ---so returning it to the network means a later fetch can hand it back and
+  ---the job wastes cycles rejecting it. It is therefore dropped by default;
+  ---`cfg.keepJunk` sends it to the ME network instead, if you would rather
+  ---sort them out by hand than lose them.
   function api.discard(slot, count)
     local have = robot.count(slot)
     if have == 0 then return true end
     local st = stackIn(slot)
     if st and not genome.isBee(st) then return dumpSlot(slot) end
+    if cfg.keepJunk then
+      local before = have
+      goTo(1)
+      robot.select(slot)
+      local n = math.min(count or have, have)
+      invctl.dropIntoSlot(sides.up, cfg.interface.main.dump, n)
+      if robot.count(slot) < before then return true end
+      say("could not hand the spare bees to the ME network; dropping them instead")
+    end
     goTo(0)
     robot.select(slot)
     local n = math.min(count or have, have)
@@ -773,7 +789,7 @@ function cell:new(cfg, logger)
       elseif genome.analyzed(st) then
         api.discard(e.slot)          -- analyzed and impure: junk
       else
-        -- never void a bee we could not read; it stays until analysis works
+        -- never throw away a bee we could not read; it stays until analysis works
         say("sweep: keeping %s, it could not be analyzed", tostring(st.label))
       end
     end
