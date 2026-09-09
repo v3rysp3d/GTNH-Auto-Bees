@@ -621,3 +621,41 @@ T.run("integration: a broken stack does not cost the whole library", function()
   end
   env.side = "robot"
 end)
+
+-- Upgrades bolted into the machine on purpose were being pulled out by the
+-- next job that had nothing to say about climate.
+T.run("integration: upgrades nobody asked about are left alone", function()
+  env.side = "robot"
+  env.world.housing.upgrades = { { label = "Industrial Apiary Dryer Upgrade", size = 2, key = "dryer" } }
+  -- a real job with nothing to say about climate: it used to strip the machine
+  env.side = "controller"
+  local res = ctl:command("more Common keep 2", "test")
+  T.ok(res:match("queued"), "a job to run: " .. res)
+  local mreq = ctl.S.requests[#ctl.S.requests]
+  for _ = 1, 30 do
+    if mreq.status ~= "active" then break end
+    env.side = "controller" ctl:tick()
+    env.side = "robot" cell:step()
+    env.side = "controller" ctl:tick()
+  end
+  env.side = "robot"
+  local kept = 0
+  for _, u in pairs(env.world.housing.upgrades) do
+    if u.label:lower():find("dryer") then kept = kept + (u.size or 1) end
+  end
+  T.eq(kept, 2, "the two dryers are still in the machine")
+
+  -- and the controller counts them as part of what the cell offers
+  env.side = "controller"
+  ctl.cfg.cells.cell1.fixedUpgrades = { dryer = 2 }
+  local base = ctl:effectiveBase(ctl.cells.cell1)
+  T.ok(base.hum < (ctl.cfg.cells.cell1.base.hum), "the cell reads as drier than its biome: " .. tostring(base.hum))
+  local job = { id = "jf", target = U("Common"), a = U("Forest"), b = U("Meadows"),
+    needHum = { min = "Arid", max = "Arid" } }
+  ctl:prepareJob(job, ctl.cells.cell1)
+  T.ok((job.climate.dryer or 0) >= 2, "and the fixed dryers are asked for again, not evicted: "
+    .. tostring(job.climate.dryer))
+  ctl.cfg.cells.cell1.fixedUpgrades = nil
+  env.world.housing.upgrades = {}
+  env.side = "robot"
+end)

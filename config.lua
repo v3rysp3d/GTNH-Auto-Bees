@@ -44,6 +44,10 @@ local config = {
         mainInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- interface above the robot column (honey, blocks, upgrades)
         beeInterface = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",  -- interface below the robot column (bee library)
         base = { temp = 0.8, hum = 0.4 },                -- biome temperature / humidity where the cell stands (plains shown)
+        -- Upgrades this cell always carries, counted as part of its climate
+        -- and never taken out. Use it when you have bolted upgrades in to
+        -- make the cell sit where you want it.
+        -- fixedUpgrades = { dryer = 2 },
       },
     },
 

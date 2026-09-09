@@ -760,13 +760,29 @@ function cell:new(cfg, logger)
     return false
   end
 
+  --- Upgrades that pull the climate the opposite way to the one asked for.
+  --- A heater has to come out before a cooler can do its job; a dryer that
+  --- somebody installed on purpose does not, as long as nothing needs damp.
+  local climateOpposite = {
+    heater = "cooler", cooler = "heater", humidifier = "dryer", dryer = "humidifier",
+  }
+
   function api.setClimate(counts)
     if not hs.caps.climateUpgrades then return true end
     counts = counts or {}
     local installed = installedUpgrades()
+    local wantsClimate = next(counts) ~= nil
     for i, u in pairs(installed) do
-      if u.key and cfg.climateKeys[u.key] and (counts[u.key] or 0) ~= u.count then
-        if removeUpgrade(i, u.count) then installed[i] = nil end
+      -- Only take out what is in the way. Upgrades nobody asked about stay:
+      -- they are usually there because the cell needs them to sit where it
+      -- does, and pulling them changes the hive out from under the bees.
+      local conflicts = u.key and climateOpposite[u.key] and (counts[climateOpposite[u.key]] or 0) > 0
+      local tooMany = u.key and cfg.climateKeys[u.key] and (counts[u.key] or 0) > 0 and u.count > counts[u.key]
+      if wantsClimate and (conflicts or tooMany) then
+        local excess = tooMany and (u.count - counts[u.key]) or u.count
+        if removeUpgrade(i, excess) then
+          if excess >= u.count then installed[i] = nil else u.count = u.count - excess end
+        end
       end
     end
     for key, n in pairs(counts) do

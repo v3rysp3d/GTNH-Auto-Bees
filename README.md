@@ -260,6 +260,16 @@ same thing plainly: `more 1005 keep 64`. With `keep forever` the run has no targ
 it, which also means it holds that cell, so give it one of its own if you have several. A line at fertility 1
 cannot make more of itself and is refused with a pointer at `improve`.
 
+### Upgrades you installed yourself
+
+The robot only takes out upgrades that are in the way: one pulling the climate the opposite direction to what a
+job needs, or the excess when a job needs fewer than are fitted. A job with no climate requirement changes
+nothing, so upgrades bolted in to make the cell sit where you want it stay put.
+
+If a cell permanently carries some, tell the controller with `fixedUpgrades = { dryer = 2 }` in that cell's
+config. They then count as part of the cell's climate, so planning starts from where the cell actually sits
+rather than from its biome, and every job asks for them again instead of evicting them.
+
 ### More than one cell
 
 Each cell declares the temperature and humidity of the biome it stands in. A job that needs a climate goes to

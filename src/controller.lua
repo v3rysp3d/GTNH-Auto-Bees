@@ -557,13 +557,26 @@ function controller:new(cfg, logger)
   --- it. A cell standing in a swamp needs no humidifier for a damp bee and
   --- several coolers for a cold one; the one in the desert is the reverse.
   --- Fewer upgrades is better, and a cell that needs none is best of all.
+  --- The climate a cell actually offers: its biome, shifted by any upgrades
+  --- it permanently carries. A cell in normal air with two dryers bolted in
+  --- is an arid cell, and planning against its biome would fight them.
+  function obj:effectiveBase(c)
+    local base = (c.cfg or {}).base or { temp = 0.8, hum = 0.4 }
+    local fixed = (c.cfg or {}).fixedUpgrades
+    if not fixed then return base end
+    local temp, hum = base.temp, base.hum
+    temp = temp + (fixed.heater or 0) * climate.step - (fixed.cooler or 0) * climate.step
+    hum = hum + (fixed.humidifier or 0) * climate.step - (fixed.dryer or 0) * climate.step
+    return { temp = temp, hum = hum }
+  end
+
   function obj:cellCost(job, c)
     local hs = housing.get(c.housing or (c.cfg or {}).housing or "gt_iapiary")
     if not hs then return nil end
     if not (job.needTemp or job.needHum) then return 0 end
     if not (hs.caps or {}).climateUpgrades and not (hs.caps or {}).alvearyClimate then
       -- this housing cannot be nudged, so the biome has to be right already
-      local base = (c.cfg or {}).base or { temp = 0.8, hum = 0.4 }
+      local base = self:effectiveBase(c)
       local sol = climate.solve({ baseTemp = base.temp, baseHum = base.hum,
         needTemp = job.needTemp, needHum = job.needHum })
       if not sol then return nil end
@@ -571,7 +584,7 @@ function controller:new(cfg, logger)
       if n > 0 or sol.hell then return nil end
       return 0
     end
-    local base = (c.cfg or {}).base or { temp = 0.8, hum = 0.4 }
+    local base = self:effectiveBase(c)
     local sol = climate.solve({ baseTemp = base.temp, baseHum = base.hum,
       needTemp = job.needTemp, needHum = job.needHum })
     if not sol then return nil end
@@ -692,11 +705,16 @@ function controller:new(cfg, logger)
   --- when an item is missing (a craft is requested when a pattern exists), or
   --- false, reason when the job can never run on this cell.
   function obj:prepareJob(job, c)
-    local base = c.cfg.base or { temp = 0.8, hum = 0.4 }
+    local base = self:effectiveBase(c)
     if job.needTemp or job.needHum then
       local sol, why = climate.solve({ baseTemp = base.temp, baseHum = base.hum, needTemp = job.needTemp, needHum = job.needHum })
       if not sol then return false, "climate: " .. why end
       job.climate = climate.upgradeCounts(sol)
+      -- upgrades the cell always carries are part of what it is, so they are
+      -- asked for again rather than being taken out
+      for key, n in pairs((c.cfg or {}).fixedUpgrades or {}) do
+        job.climate[key] = math.max(job.climate[key] or 0, n)
+      end
     else
       job.climate = {}
     end
@@ -811,7 +829,7 @@ function controller:new(cfg, logger)
             kind = job.kind, donor = job.donor, wantFertility = job.wantFertility, strictAfter = job.strictAfter,
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
-            base = (c.cfg or {}).base,
+            base = self:effectiveBase(c),
           })
           local climateText = {}
           for k, n in pairs(job.climate or {}) do climateText[#climateText + 1] = k .. " x" .. n end
