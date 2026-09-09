@@ -210,3 +210,23 @@ T.run("graph plan", function()
   -- already owned target -> empty plan
   T.eq(#g:plan("Common", { Common = true }).steps, 0, "owned target")
 end)
+
+-- The logger substitutes the message into its format with gsub, where a
+-- percent sign in the REPLACEMENT is an escape character. "15% chance" threw
+-- "invalid use of '%'", and because the reply was logged line by line the
+-- rest of it vanished with the error.
+T.run("logger: a message with a percent sign survives formatting", function()
+  -- the library pulls in OpenComputers modules it does not need for this
+  package.loaded["event"] = package.loaded["event"] or { listen = function() end, timer = function() end }
+  package.loaded["filesystem"] = package.loaded["filesystem"] or
+    { exists = function() return false end, lastModified = function() return 0 end }
+  package.loaded["computer"] = package.loaded["computer"] or { uptime = function() return 0 end }
+  local loggerLib = require("lib.logger-lib")
+  local logger = loggerLib:new("Test", 0, {})
+  logger.getTime = function() return "00:00:00" end   -- it reads a temp file for the clock
+  local ok, res = pcall(function()
+    return logger:formatMessage("[{LogLevel}] {Message}", "info", "Forest + Rocky  15%  (you have 3 drones)")
+  end)
+  T.ok(ok, "formatting does not throw: " .. tostring(res))
+  T.ok(tostring(res):find("15%%") ~= nil, "and the percent sign is still there: " .. tostring(res))
+end)

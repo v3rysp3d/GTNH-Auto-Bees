@@ -181,6 +181,18 @@ T.run("integration: retry revives a blocked request", function()
   ctl:command("cancel " .. req.id, "test")
 end)
 
+-- A percent sign in a log line used to throw inside the logger, which
+-- silently swallowed the rest of a reply: chances are written as "15%".
+T.run("integration: a reply full of percent signs reaches the log intact", function()
+  local before = #env.log
+  ctl:command("routes Common", "gui")
+  local lines = #env.log - before
+  T.ok(lines >= 2, "every line of the reply was logged, not just the header: " .. lines)
+  local sawPercent = false
+  for i = before + 1, #env.log do if env.log[i]:find("%%") then sawPercent = true end end
+  T.ok(sawPercent, "including the ones carrying a percent sign")
+end)
+
 T.run("integration: routes explains which mutation the planner picked", function()
   local out = ctl:command("routes Common", "test")
   T.ok(out:find("route(s) to", 1, true), "routes lists the mutations: " .. out)

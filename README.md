@@ -75,7 +75,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `breed 4137 extra 4051=64 4060=32` | also stockpile intermediates |
 | `breed 4137 all 16` | keep 16 drones of every intermediate |
 | `plan 4137` | show the steps, chances and conditions the planner picked |
-| `routes 1005` | every mutation that makes a species, marking the one the planner picked |
+| `routes 1005 [all]` | every mutation that makes a species, best odds first, marking the one the planner picked |
 | `improve 2078 want 2` | breed a better fertility allele onto a species, using a donor from the library |
 | `needs 4137` | foundation blocks, climate upgrades and stations for that chain, with stock status |
 | `find naquadah` | catalog numbers |
@@ -242,6 +242,13 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 
 OpenComputers stamps its logs with the in-game clock, which runs 72 times faster than real time. An hour on
 screen is fifty real seconds, so a log that looks like it spent an hour on one step spent under a minute.
+
+### A species is available only when you have drones of it
+
+Every mating spends a drone, so the planner counts a species as owned only when the library holds drones of it.
+Princesses alone do not make a route usable, which is why a chain can reach for a species you would not expect
+while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
+princesses, and `routes` shows the drone count for both parents of every route.
 
 ### Why it picked those parents
 

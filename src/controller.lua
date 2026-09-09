@@ -1033,7 +1033,9 @@ function controller:new(cfg, logger)
     local ok, res = pcall(function() return self:runCommand(line, who) end)
     if not ok then res = "error: " .. tostring(res) end
     if who == "gui" then
-      for l in (tostring(res) .. "\n"):gmatch("(.-)\n") do if l ~= "" then self.logger:info(clean(l)) end end
+      for l in (tostring(res) .. "\n"):gmatch("(.-)\n") do
+        if l ~= "" then pcall(function() self.logger:info(clean(l)) end) end
+      end
     end
     return res
   end
@@ -1124,13 +1126,20 @@ function controller:new(cfg, logger)
       local list = {}
       for _, idx in ipairs(idxs) do list[#list + 1] = { idx = idx, m = self.graph.mutations[idx] } end
       table.sort(list, function(x, y) return (x.m.chance or 0) > (y.m.chance or 0) end)
-      local out = { string.format("%d route(s) to %s:", #list, self:label(e.uid)) }
+      local shown, limit = 0, tonumber(cmd.opts.all) and #list or 12
+      local out = { string.format("%d route(s) to %s, best odds first:", #list, self:label(e.uid)) }
       for _, entry in ipairs(list) do
         local m = entry.m
+        shown = shown + 1
+        if shown > limit and not chosen[entry.idx] then
+          if shown == limit + 1 then out[#out + 1] = string.format("  ... %d more (add 'all' to see them)", #list - limit) end
+          goto continue
+        end
         local cond = conditions.describeAll(m.conds or {})
         out[#out + 1] = string.format("%s %s + %s  %s%%  (you have %d and %d drones)%s",
           chosen[entry.idx] and "->" or "  ", self:label(m.a), self:label(m.b), tostring(m.chance or 0),
           self:dronesOf(m.a), self:dronesOf(m.b), cond ~= "-" and ("  needs " .. cond) or "")
+        ::continue::
       end
       out[#out + 1] = "-> marks the route the planner picked; it prefers what you already own and the better odds"
       return table.concat(out, "\n")
@@ -1228,7 +1237,8 @@ function controller:new(cfg, logger)
         local name = b.name or key
         if filter == "" or name:lower():find(filter, 1, true) then
           if key:match("^name:") then
-            out[#out + 1] = string.format("%-30s unanalyzed %d", name, b.unanalyzed)
+            out[#out + 1] = string.format("%-30s unanalyzed %d (drones %d, princesses %d)", name, b.unanalyzed,
+              b.unanalyzedDrones or 0, b.unanalyzedPrincesses or 0)
           else
             out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s%s", self:label(key), b.drones, b.princesses,
               b.fertility and string.format("  fertility %d%s", b.fertility, b.fertility <= 1 and " (cannot stockpile)" or "") or "",

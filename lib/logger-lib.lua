@@ -136,8 +136,12 @@ function logger:new(name, timeZone, handlers)
 
     local timeFormat = format:match("{Time:([^}]+)}")
 
-    result = result:gsub("{Message}", message)
-    result = result:gsub("{LogLevel}", logLevel)
+    -- gsub treats % in the REPLACEMENT as an escape, so a message carrying a
+    -- percent sign ("15% chance") throws "invalid use of '%'". Doubling them
+    -- keeps such lines loggable. (Local fix to the vendored library.)
+    local function literal(s) return (tostring(s):gsub("%%", "%%%%")) end
+    result = result:gsub("{Message}", literal(message))
+    result = result:gsub("{LogLevel}", literal(logLevel))
     result = result:gsub("{Time:[^}]+}", self:getTime(timeFormat))
 
     return result
