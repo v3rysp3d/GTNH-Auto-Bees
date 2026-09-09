@@ -65,6 +65,7 @@ local config = {
     honeyStock = 64,
 
     chanceWeight = 0.1,        -- planner: cost per (100 / mutation chance)
+    stockWeight = 6,           -- planner: how hard to favour routes the current stock can actually finish
     foundationCostBase = 2,    -- planner: extra cost per foundation block
     libraryScanInterval = 900, -- seconds between ME library scans (each scan reads every bee in the network)
 

@@ -250,6 +250,15 @@ Princesses alone do not make a route usable, which is why a chain can reach for 
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
 
+### Odds are weighed against your stock
+
+Every attempt spends a drone of each parent, so what matters is not the mutation's chance but the chance of a
+hit before the drones run out: `1 - (1 - p)^n`. One drone at 30% is a single attempt and usually fails; Forest
+and Meadows in quantity at 15% is a near certainty. The planner scores routes that way, so it prefers the one
+your library can actually finish, and `routes` prints the arithmetic per route. A line that cannot breed more of
+itself is capped at what you hold; a stockpilable one is credited with what it could breed, minus a little for
+the time that takes. `stockWeight` in `config.lua` sets how hard this pulls.
+
 ### Why it picked those parents
 
 The mutation list is read out of your own game with `getBeeParents`, so it holds whatever your pack defines,

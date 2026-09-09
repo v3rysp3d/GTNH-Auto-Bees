@@ -345,10 +345,43 @@ function controller:new(cfg, logger)
     return ctx
   end
 
+  --- Attempts a species with drones to spare is assumed to allow once it has
+  --- been stockpiled. High enough that a normal mutation lands, low enough
+  --- that a route with the drones already in hand still wins.
+  obj.STOCKPILE_ATTEMPTS = 24
+
+  --- How much a route is penalised for the stock it would be run with.
+  ---
+  --- Every attempt spends a drone of each parent, so the real question is not
+  --- the mutation's chance but the chance of at least one hit before the
+  --- drones run out: 1 - (1 - p)^n. With one Rocky drone at 15% that is 0.15
+  --- and the route is a coin flip at best; with a hundred Meadows and Forest
+  --- drones it is indistinguishable from certain. A line that cannot breed
+  --- more of itself is capped at what is actually in the library.
+  function obj:stockCost(m)
+    local p = math.max(tonumber(m.chance) or 5, 0.1) / 100
+    local attempts, extra = math.huge, 0
+    for _, uid in ipairs({ m.a, m.b }) do
+      local have = self:dronesOf(uid)
+      local n = have
+      if self:canStockpile(uid) then
+        n = math.max(have, self.STOCKPILE_ATTEMPTS)   -- more can be bred
+        if have < 4 then extra = extra + 2 end        -- but breeding them costs time
+      elseif have < 4 then
+        extra = extra + 50                            -- and this line cannot make more
+      end
+      attempts = math.min(attempts, n)
+    end
+    attempts = math.max(attempts, 1)
+    local success = 1 - (1 - p) ^ attempts
+    return extra + (self.cfg.stockWeight or 6) * (1 / math.max(success, 0.02) - 1)
+  end
+
   function obj:planFor(uid)
     return self.graph:plan(uid, self:ownedSet(), {
       chanceWeight = self.cfg.chanceWeight or 0.1,
       conditionCost = function(conds, m) return self:conditionCost(conds, m) end,
+      stockCost = function(m) return self:stockCost(m) end,
     })
   end
 
@@ -1136,8 +1169,13 @@ function controller:new(cfg, logger)
           goto continue
         end
         local cond = conditions.describeAll(m.conds or {})
-        out[#out + 1] = string.format("%s %s + %s  %s%%  (you have %d and %d drones)%s",
+        local p = math.max(tonumber(m.chance) or 5, 0.1) / 100
+        local n = math.max(math.min(
+          self:canStockpile(m.a) and math.max(self:dronesOf(m.a), self.STOCKPILE_ATTEMPTS) or self:dronesOf(m.a),
+          self:canStockpile(m.b) and math.max(self:dronesOf(m.b), self.STOCKPILE_ATTEMPTS) or self:dronesOf(m.b)), 1)
+        out[#out + 1] = string.format("%s %s + %s  %s%% x%d tries = %d%% likely  (you have %d and %d drones)%s",
           chosen[entry.idx] and "->" or "  ", self:label(m.a), self:label(m.b), tostring(m.chance or 0),
+          n, math.floor((1 - (1 - p) ^ n) * 100 + 0.5),
           self:dronesOf(m.a), self:dronesOf(m.b), cond ~= "-" and ("  needs " .. cond) or "")
         ::continue::
       end

@@ -433,3 +433,36 @@ T.run("integration: improve queues an uplift with a donor from the library", fun
   T.ok(ctl:command("improve Cultivated", "test"):find("already at fertility 2", 1, true), "a good line is left alone")
   env.side = "robot"
 end)
+
+-- Better odds are worth nothing if the drones run out first. One Rocky drone
+-- at 30% is a single attempt; Forest and Meadows in quantity at 15% is a near
+-- certainty, and that is the route to take.
+T.run("integration: the planner favours the route the stock can finish", function()
+  local savedCommon, savedRocky = ctl.library[U("Common")], ctl.library[U("Rocky")]
+  local savedLow = ctl.lowFertility
+  ctl.graph:addMutation({ a = U("Rocky"), aName = "Rocky", b = U("Forest"), bName = "Forest",
+    result = U("Common"), resultName = "Common", chance = 30 })
+  ctl.cat:assign(ctl.graph)
+  ctl.library[U("Common")] = nil                      -- Common has to be planned
+  ctl.library[U("Rocky")] = { name = "Rocky", drones = 1, princesses = 1, queens = 0, hybrids = 0,
+    unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0, fertility = 1 }
+  ctl.lowFertility = { [U("Rocky")] = true }          -- fertility 1: no more can be bred
+
+  local plan = ctl:planFor(U("Common"))
+  T.ok(plan ~= nil, "a plan exists")
+  local step
+  for _, st in ipairs(plan.steps) do if st.result == U("Common") then step = st end end
+  T.ok(step ~= nil, "with a step making Common")
+  local parents = { [step.a] = true, [step.b] = true }
+  T.ok(parents[U("Meadows")], "it uses Meadows, which we hold in quantity")
+  T.ok(not parents[U("Rocky")], "and not the single Rocky drone, despite the better odds")
+
+  -- with a hundred Rocky drones the better odds win again
+  ctl.library[U("Rocky")].drones = 100
+  local plan2 = ctl:planFor(U("Common"))
+  local step2
+  for _, st in ipairs(plan2.steps) do if st.result == U("Common") then step2 = st end end
+  T.ok(step2 and (step2.a == U("Rocky") or step2.b == U("Rocky")), "plenty of Rocky drones make the 30% route best")
+
+  ctl.library[U("Common")], ctl.library[U("Rocky")], ctl.lowFertility = savedCommon, savedRocky, savedLow
+end)

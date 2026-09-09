@@ -223,6 +223,14 @@ local function defaultStepCost(m, opts)
     if extra == nil then return nil end
     cost = cost + extra
   end
+  -- What the odds are worth depends on how many attempts the stock allows:
+  -- a 15% step is nearly hopeless with one drone of a parent and nearly
+  -- certain with a hundred.
+  if opts.stockCost then
+    local extra = opts.stockCost(m)
+    if extra == nil then return nil end
+    cost = cost + extra
+  end
   return cost
 end
 
