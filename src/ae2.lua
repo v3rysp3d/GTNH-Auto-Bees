@@ -143,7 +143,11 @@ function ae2:library()
       pristinePrincesses = 0 }
     return lib[key]
   end
+  local skipped = 0
   for _, st in ipairs(self:bees()) do
+    -- one odd stack must not cost the whole library: without it the
+    -- controller has no idea what is in stock and nothing can be planned
+    local okOne, whyOne = pcall(function()
     local kind = genome.kind(st)
     local n = st.size or 1
     if not genome.analyzed(st) then
@@ -167,6 +171,12 @@ function ae2:library()
         b.princesses = b.princesses + n
         if genome.isPristine(st) then b.pristinePrincesses = b.pristinePrincesses + n end
       elseif kind == "queen" then b.queens = b.queens + n end
+    end
+    end)
+    if not okOne then
+      skipped = skipped + 1
+      lib.skipped = (lib.skipped or 0) + 1
+      lib.skippedWhy = tostring(whyOne)
     end
   end
   return lib

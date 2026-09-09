@@ -211,7 +211,9 @@ genome.effectRank = {
 --- Pristine stock, which Forestry marks natural. Ignoble bees can be lost
 --- when they breed, so a pristine one is the better bee to work with.
 function genome.isPristine(stack)
-  if not genome.isBee(stack) then return false end
+  -- a bee item can arrive without its genome table at all, so the item name
+  -- matching is not enough to go looking inside it
+  if not genome.isBee(stack) or type(stack.individual) ~= "table" then return false end
   return stack.individual.isNatural == true
 end
 

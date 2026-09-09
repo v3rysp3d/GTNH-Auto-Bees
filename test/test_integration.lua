@@ -604,3 +604,20 @@ T.run("integration: a pristine princess is handed over first", function()
   T.eq(asked, "Pristine Princess", "the pristine species wins over the plentiful one")
   env.side = "robot"
 end)
+
+-- One unreadable stack used to take the whole library with it, leaving the
+-- controller blind and the log full of the same error every round.
+T.run("integration: a broken stack does not cost the whole library", function()
+  env.side = "controller"
+  me.add({ name = "Forestry:beeDroneGE", label = "Broken Drone", size = 1 })  -- no genome at all
+  local lib = ctl.me:library()
+  local species = 0
+  for key in pairs(lib) do if key ~= "skipped" and key ~= "skippedWhy" then species = species + 1 end end
+  T.ok(species > 0, "the rest of the library still reads: " .. species)
+  ctl:scanLibrary(true)
+  T.ok(util.count(ctl:ownedSet()) > 0, "and the controller still knows what it owns")
+  for i = #env.me.items, 1, -1 do
+    if env.me.items[i].label == "Broken Drone" then table.remove(env.me.items, i) end
+  end
+  env.side = "robot"
+end)

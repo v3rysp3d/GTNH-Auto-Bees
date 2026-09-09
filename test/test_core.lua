@@ -168,6 +168,10 @@ T.run("genome", function()
   local pristine = bee({ speed = "Normal", fertility = 2, lifespan = "Normal" })
   pristine.individual.isNatural = true
   plain.individual.isNatural = false
+  -- a bee item with no genome table at all crashed the library scan
+  T.eq(genome.isPristine({ name = "Forestry:beeDroneGE", label = "Common Drone", size = 1 }), false,
+    "a bee item without its genome is simply not pristine")
+  T.eq(genome.isPristine(nil), false, "and neither is nothing")
   T.eq(genome.isPristine(pristine), true, "natural stock is pristine")
   T.eq(genome.isPristine(plain), false, "and ignoble stock is not")
   T.ok(genome.quality(pristine) > genome.quality(plain), "pristine outranks ignoble, all else equal")

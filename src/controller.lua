@@ -207,12 +207,22 @@ function controller:new(cfg, logger)
     if ok and type(lib) == "table" then
       self.library = lib
       self.libraryScannedAt = util.now()
+      self.lastScanError = nil
+      if (lib.skipped or 0) > 0 and tostring(lib.skippedWhy) ~= tostring(self.lastSkipWhy) then
+        self.lastSkipWhy = tostring(lib.skippedWhy)
+        self:warn("%d item(s) in the network could not be read as bees: %s", lib.skipped, tostring(lib.skippedWhy))
+      end
       local took = self.libraryScannedAt - started
       if took >= 5 then
         self:warn("the library scan took %.0fs; raise libraryScanInterval if that hurts", took)
       end
     else
-      self:warn("library scan failed: %s", tostring(lib))
+      -- back off and say it once, rather than once per round
+      self.libraryScannedAt = util.now() - (self.cfg.libraryScanInterval or 900) + 60
+      if tostring(lib) ~= tostring(self.lastScanError) then
+        self.lastScanError = tostring(lib)
+        self:warn("library scan failed: %s", tostring(lib))
+      end
     end
   end
 
