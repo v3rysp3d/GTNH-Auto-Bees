@@ -139,6 +139,13 @@ function genome.fertility(stack)
   return tonumber(stack.individual.active.fertility)
 end
 
+--- Both fertility alleles: what she expresses, and what she carries. A line
+--- breeds true for fertility only when both are at the wanted value.
+function genome.fertilityPair(stack)
+  if not genome.analyzed(stack) then return nil, nil end
+  return tonumber(stack.individual.active.fertility), tonumber(stack.individual.inactive.fertility)
+end
+
 function genome.flowerType(stack)
   if not genome.analyzed(stack) then return nil end
   return stack.individual.active.flowerProvider

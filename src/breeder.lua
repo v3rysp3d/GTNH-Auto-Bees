@@ -63,6 +63,7 @@ local function mateScore(stack, uid, name)
 end
 
 function breeder.run(cell, job)
+  if job.kind == "fertility" then return breeder.fertility(cell, job) end
   local target = job.target
   local A, B = job.a or target, job.b or target
   -- species are uids; job.names maps them to the display names seen on
@@ -428,6 +429,238 @@ function breeder.run(cell, job)
     ok = true, target = target, generations = state.generation, hits = state.hits,
     archivedDrones = state.archivedDrones, princess = producedPrincess, honey = state.honeyUsed,
   }
+  ev("done", res)
+  return res
+end
+
+--- Breed a better fertility allele into a species.
+---
+--- Fertility is an allele of its own, not a property of the species, so a
+--- line that comes out of the hives at fertility 1 can be lifted to 2 or
+--- more: cross in a donor that has the better allele, then breed the species
+--- back to pure while keeping individuals that carry it. A bee shows both of
+--- its alleles once analyzed, so "carries it twice" is something the robot
+--- can check rather than guess.
+---
+--- job: { target, donor, wantFertility, keepDrones, names, maxGenerations }
+function breeder.fertility(cell, job)
+  local target, donor = job.target, job.donor
+  local want = tonumber(job.wantFertility) or 2
+  local keep = job.keepDrones or 4
+  local maxGen = job.maxGenerations or 200
+  local supply = job.droneSupply or 16
+  local names = job.names or {}
+  local function nameOf(uid) return names[uid] or uid end
+
+  local state = { generation = 0, archivedDrones = 0, phase = "prepare", honeyUsed = 0, princessSlot = nil }
+
+  local function ev(kind, data)
+    data = data or {}
+    data.job = job.id
+    data.generation = state.generation
+    data.phase = state.phase
+    pcall(cell.event, kind, data)
+  end
+
+  local function fail(reason)
+    ev("error", { reason = reason })
+    return { ok = false, reason = reason, generations = state.generation, archivedDrones = state.archivedDrones }
+  end
+
+  local function setPhase(p)
+    if state.phase ~= p then
+      state.phase = p
+      ev("phase", { to = p })
+    end
+  end
+
+  local function analyzeSlot(slot)
+    local st = cell.read(slot)
+    if not st then return nil end
+    if genome.analyzed(st) then return st end
+    local ok, err = cell.analyze(slot)
+    if not ok then
+      if tostring(err):lower():find("honey", 1, true) then
+        state.noHoney = tostring(err)
+      end
+      return st
+    end
+    state.honeyUsed = state.honeyUsed + 1
+    return cell.read(slot)
+  end
+
+  --- Both alleles at or above the goal: only then does the line breed true.
+  local function goodFertility(st)
+    local a, i = genome.fertilityPair(st)
+    return a ~= nil and i ~= nil and a >= want and i >= want
+  end
+
+  local function carriesFertility(st)
+    local a, i = genome.fertilityPair(st)
+    return (a ~= nil and a >= want) or (i ~= nil and i >= want)
+  end
+
+  local function finished(st)
+    return genome.isPure(st, target) and goodFertility(st)
+  end
+
+  --- How useful a bee is to this job: the species matters most, the alleles
+  --- decide between equals.
+  local function score(st)
+    if not genome.analyzed(st) then return 0 end
+    local s = 0
+    if genome.isPure(st, target) then s = s + 100
+    elseif genome.hasSpecies(st, target) then s = s + 40 end
+    if goodFertility(st) then s = s + 30
+    elseif carriesFertility(st) then s = s + 15 end
+    return s
+  end
+
+  local function bestIn(kind, pred)
+    local bestSlot, bestScore, bestStack = nil, -1, nil
+    for _, e in ipairs(cell.listBees()) do
+      if genome.kind(e.stack) == kind and (pred == nil or pred(e.stack)) then
+        local sc = score(e.stack)
+        if sc > bestScore then bestSlot, bestScore, bestStack = e.slot, sc, e.stack end
+      end
+    end
+    return bestSlot, bestStack, bestScore
+  end
+
+  ----------------------------------------------------------------------
+  -- a princess of the species to lift
+  ----------------------------------------------------------------------
+  local princessSlot = cell.fetch(target, "princess", 1, nameOf(target))
+  if not princessSlot then
+    princessSlot = cell.fetch(nil, "princess", 1)
+    if not princessSlot then return fail("no princess available in the library") end
+  end
+  state.princessSlot = princessSlot
+  local princess = analyzeSlot(princessSlot)
+  if state.noHoney then return fail("analysis needs Honey Drop: " .. state.noHoney) end
+  if not princess or genome.kind(princess) ~= "princess" then return fail("fetched item is not a princess") end
+
+  ----------------------------------------------------------------------
+  -- generations
+  ----------------------------------------------------------------------
+  while true do
+    if cell.cancelled() then return fail("cancelled") end
+    if state.generation >= maxGen then return fail("generation limit reached (" .. maxGen .. ")") end
+
+    princess = cell.read(state.princessSlot)
+    if not princess or genome.kind(princess) ~= "princess" then
+      return fail("princess lost from slot " .. tostring(state.princessSlot))
+    end
+    if not genome.analyzed(princess) then princess = analyzeSlot(state.princessSlot) end
+    if state.noHoney then return fail("analysis needs Honey Drop: " .. state.noHoney) end
+
+    if finished(princess) and state.archivedDrones >= keep then break end
+
+    -- What she needs next: the species back if she has drifted, the better
+    -- allele if she lacks it, and otherwise a partner as good as she is.
+    local wanted
+    if not genome.isPure(princess, target) then
+      setPhase("recover")
+      wanted = { { uid = target, need = "pure" }, { uid = target } }
+    elseif not goodFertility(princess) then
+      setPhase("uplift")
+      wanted = { { uid = target, need = "good" }, { uid = donor, need = "carrier" }, { uid = donor } }
+    else
+      setPhase("fix")
+      wanted = { { uid = target, need = "good" }, { uid = target, need = "carrier" }, { uid = target } }
+    end
+
+    local mateSlot
+    for _, w in ipairs(wanted) do
+      local pred = function(st)
+        if w.uid and not genome.isPure(st, w.uid) then return false end
+        if w.need == "good" then return goodFertility(st) end
+        if w.need == "carrier" then return carriesFertility(st) end
+        return true
+      end
+      mateSlot = select(1, bestIn("drone", pred))
+      if not mateSlot then
+        local slot = cell.fetch(w.uid, "drone", supply, nameOf(w.uid))
+        if slot then
+          local st = analyzeSlot(slot)
+          if st and pred(st) then mateSlot = slot end
+        end
+      end
+      if mateSlot then break end
+    end
+    if not mateSlot then
+      return fail("ran out of drones (" .. nameOf(target) .. "/" .. nameOf(donor) .. ")")
+    end
+
+    local okD, errD = cell.insertDrone(mateSlot)
+    if not okD then return fail("insertDrone: " .. tostring(errD)) end
+    local okQ, errQ = cell.insertQueen(state.princessSlot)
+    if not okQ then return fail("insertQueen: " .. tostring(errQ)) end
+
+    local result, info = cell.waitCycle()
+    if result ~= "done" then
+      cell.collect()
+      return fail("cycle " .. tostring(result) .. (info and (": " .. tostring(info)) or ""))
+    end
+    state.generation = state.generation + 1
+    cell.collect()
+
+    -- read everything new, then keep the best princess and bank the drones
+    -- that already breed true
+    for _, e in ipairs(cell.listBees()) do
+      if not genome.analyzed(e.stack) then analyzeSlot(e.slot) end
+    end
+    if state.noHoney then return fail("analysis needs Honey Drop: " .. state.noHoney) end
+
+    local nextSlot, nextStack = bestIn("princess")
+    if not nextSlot then return fail("princess did not come back from the housing") end
+    state.princessSlot = nextSlot
+
+    local spare = 0
+    for _, e in ipairs(cell.listBees()) do
+      local st = e.stack
+      if e.slot ~= state.princessSlot and genome.kind(st) == "drone" then
+        local n = st.size or 1
+        if genome.isPure(st, target) and goodFertility(st) then
+          if spare < 2 then
+            spare = spare + n            -- one mate for the next generation
+          else
+            local ok, moved = cell.archive(e.slot, n)
+            if ok then state.archivedDrones = state.archivedDrones + (tonumber(moved) or n) end
+          end
+        elseif genome.kind(st) == "princess" then -- untouched
+        elseif not carriesFertility(st) and not genome.isPure(st, target) and not genome.isPure(st, donor) then
+          cell.discard(e.slot)           -- neither the species nor the allele
+        end
+      end
+    end
+
+    ev("gen", {
+      princess = genome.summary(nextStack), hits = finished(nextStack) and 1 or 0,
+      archived = state.archivedDrones, keep = keep, honey = state.honeyUsed,
+      fertility = select(1, genome.fertilityPair(nextStack)),
+    })
+  end
+
+  -- hand over what the job was for
+  cell.takeDrone()
+  local producedPrincess = false
+  for _, e in ipairs(cell.listBees()) do
+    local st = e.stack
+    if e.slot == state.princessSlot then
+      if finished(st) and cell.archive(e.slot, 1) then producedPrincess = true end
+    elseif genome.kind(st) == "drone" and genome.analyzed(st) and genome.isPureAny(st) then
+      local n = st.size or 1
+      local ok, moved = cell.archive(e.slot, n)
+      if ok and genome.isPure(st, target) and goodFertility(st) then
+        state.archivedDrones = state.archivedDrones + (tonumber(moved) or n)
+      end
+    end
+  end
+
+  local res = { ok = true, target = target, generations = state.generation, hits = state.archivedDrones,
+    archivedDrones = state.archivedDrones, princess = producedPrincess, honey = state.honeyUsed,
+    fertility = want }
   ev("done", res)
   return res
 end

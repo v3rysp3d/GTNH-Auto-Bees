@@ -268,6 +268,31 @@ function controller:new(cfg, logger)
     return f == nil or f > 1
   end
 
+  --- A species in the library that already carries the fertility we want and
+  --- has drones to spare. Its own species is irrelevant: only the allele
+  --- travels, and the run breeds the target back to pure afterwards.
+  function obj:bestDonor(targetUid, want)
+    local bestUid, bestDrones = nil, 0
+    for uid, b in pairs(self.library) do
+      if uid ~= targetUid and not uid:match("^name:") and (b.fertility or 0) >= want and b.drones > bestDrones then
+        bestUid, bestDrones = uid, b.drones
+      end
+    end
+    return bestUid, bestDrones
+  end
+
+  function obj:fertilityJob(req, uid, donor, want, keep)
+    local d = self.cfg.defaults
+    return {
+      id = self:newId("j"), request = req.id, kind = "fertility",
+      target = uid, a = uid, b = donor, donor = donor, wantFertility = want,
+      names = util.merge(self:namesFor(uid), self:namesFor(donor)),
+      chance = 100, conds = {}, keepDrones = keep, wantPrincess = true,
+      droneSupply = d.droneSupply, maxGenerations = d.maxGenerations,
+      status = "pending", created = util.now(),
+    }
+  end
+
   function obj:princessPool()
     local n = 0
     for _, b in pairs(self.library) do n = n + b.princesses + (b.unanalyzedPrincesses or 0) end
@@ -409,7 +434,8 @@ function controller:new(cfg, logger)
           local short = math.max(2, (needed[parent] or 0) - self:dronesOf(parent))
           if not self:canStockpile(parent) then
             self:notify("%s has fertility 1 and cannot be stockpiled: add %d more drone(s) to the ME network, " ..
-              "breeding will use the %d you have", self:label(parent), short, self:dronesOf(parent))
+              "or run 'improve %d' to breed a better fertility allele onto it",
+              self:label(parent), short, (self.cat:byUidLookup(parent) or {}).id or 0)
           else
             local sj = self:stockJob(req, parent, short)
             S.jobs[sj.id] = sj
@@ -445,6 +471,10 @@ function controller:new(cfg, logger)
 
   function obj:jobReady(job)
     if job.status ~= "pending" then return false end
+    if job.kind == "fertility" then
+      return self:dronesOf(job.donor) > 0
+        and (self:princessesOf(job.target) > 0 or self:princessPool() > 0)
+    end
     if job.kind == "stock" then
       return self:dronesOf(job.target) > 0 and (self:princessesOf(job.target) > 0 or self:princessPool() > 0)
     end
@@ -654,6 +684,7 @@ function controller:new(cfg, logger)
           c.gen, c.phase = 0, "prepare"
           self.link:send(c.addr, "job", {
             id = job.id, target = job.target, a = job.a, b = job.b, names = job.names, chance = job.chance,
+            kind = job.kind, donor = job.donor, wantFertility = job.wantFertility,
             keepDrones = job.keepDrones, wantPrincess = job.wantPrincess, foundation = job.foundation,
             climate = job.climate, droneSupply = job.droneSupply, maxGenerations = job.maxGenerations, warnAfter = job.warnAfter,
           })
@@ -738,6 +769,12 @@ function controller:new(cfg, logger)
     if ok then
       job.status = "done"
       job.finished = util.now()
+      if job.kind == "fertility" then
+        (self.lowFertility or {})[job.target] = nil
+        self:scanLibrary(true)
+        self:notify("%s now breeds true at fertility %s: stockpiling it will work",
+          self:label(job.target), tostring(job.wantFertility))
+      end
       self:card("done", string.format("%s done: %s", job.id, self:label(job.target)), {
         { "Generations", tostring(info.generations or 0) },
         { "Drones archived", tostring(info.archivedDrones or 0) },
@@ -1038,12 +1075,38 @@ function controller:new(cfg, logger)
         "needs <number|name>    autocraft / station needs for that chain",
         "find <text>            catalog numbers (shared names show their mod)",
         "routes <number>        every mutation that makes a species, and which one the planner picked",
+        "improve <number> [want 2] [keep 4]   breed a better fertility allele onto a species",
         "hives                  species that cannot be bred and must come from wild hives, with your stock",
         "status | queue | cells | library [text] | cancel <job|request> | retry <job|request> | scan | survey",
         "pair [cell]            find out which ME interface is which by marking them for the robot",
         "diag [cell]            report what the robot can reach above, below and in front",
         "settings [show|test|host <url>|interval <s>|discord webhook <url>|discord bot <token> <channel>|discord on|off]",
       }, "\n")
+    elseif verb == "improve" then
+      local e, errI = self.cat:resolve(w[2])
+      if not e then return "error: " .. tostring(errI) end
+      local want = tonumber(cmd.opts.want) or 2
+      local have = self:fertilityOf(e.uid)
+      if have and have >= want then
+        return string.format("%s is already at fertility %d", self:label(e.uid), have)
+      end
+      local donor, donorDrones = self:bestDonor(e.uid, want)
+      if not donor then
+        return string.format("no species in the library has fertility %d to lend; put a bee that does " ..
+          "into the ME network first", want)
+      end
+      local req = { id = self:newId("r"), target = e.uid, by = who or "gui", created = util.now(),
+        keep = tonumber(cmd.opts.keep) or 4, extra = {}, status = "active", jobs = {} }
+      local job = self:fertilityJob(req, e.uid, donor, want, req.keep)
+      self.S.jobs[job.id] = job
+      req.jobs[1] = job.id
+      self.S.requests[#self.S.requests + 1] = req
+      self:saveState()
+      self:notify("%s queued: lift %s to fertility %d using %s (%d drones)",
+        req.id, self:label(e.uid), want, self:label(donor), donorDrones)
+      self:dispatch()
+      return string.format("queued %s as %s: cross %s in, then breed %s back to pure keeping the better allele",
+        self:label(e.uid), req.id, self:label(donor), self:label(e.uid))
     elseif verb == "routes" then
       -- every mutation the game reports for this species, so the route the
       -- planner picked can be compared with the ones it passed over

@@ -265,7 +265,7 @@ function util.error(...) util.log(4, ...) end
 -- command line parsing: "breed 4137 keep 16 extra 4051=64 4060=32"
 -- -> { words = {"breed","4137"}, opts = { keep = "16", extra = {"4051=64","4060=32"} } }
 ------------------------------------------------------------------------
-util.optionWords = { keep = 1, extra = -1, princess = 0, drones = 1, cell = 1, all = 0, force = 0 }
+util.optionWords = { keep = 1, extra = -1, princess = 0, drones = 1, cell = 1, all = 0, force = 0, want = 1 }
 
 function util.parseCommand(line)
   local toks = util.split(util.trim(line), "%s")

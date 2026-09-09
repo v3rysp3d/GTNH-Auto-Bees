@@ -27,7 +27,7 @@ local function activeOf(a, b)
   return a, b
 end
 
-function sim.mkBee(kind, a1, a2, analyzed)
+function sim.mkBee(kind, a1, a2, analyzed, fa, fb)
   local a, b = a1, a2 or a1
   local active, inactive = activeOf(a, b)
   local kindName = kind == "princess" and "Princess" or (kind == "queen" and "Queen" or "Drone")
@@ -36,6 +36,10 @@ function sim.mkBee(kind, a1, a2, analyzed)
     individual = { type = "bee", isAnalyzed = false, displayName = active, isNatural = true },
   }
   st._a, st._b = a, b
+  -- fertility is an allele of its own, inherited independently of species;
+  -- a bee from a hive carries its species' default twice
+  st._fa = fa or sim.fertilityOf(a)
+  st._fb = fb or sim.fertilityOf(b)
   if analyzed then sim.analyze(st) end
   return st
 end
@@ -43,6 +47,19 @@ end
 --- Drones a queen of a species makes per cycle; 2 unless a test says
 --- otherwise. Some real bees have 1, which means a line cannot grow.
 sim.fertility = {}
+
+local traitRng = nil
+local function traitRoll()
+  traitRng = traitRng or sim.rng(4242)
+  return traitRng()
+end
+
+--- What a queen actually expresses, which is how many drones she makes.
+function sim.expressed(bee)
+  local fa = bee._fa or sim.fertilityOf(bee._a)
+  local fb = bee._fb or sim.fertilityOf(bee._b)
+  return math.max(fa, fb)
+end
 
 function sim.fertilityOf(species)
   return sim.fertility[species] or 2
@@ -52,10 +69,11 @@ function sim.analyze(st)
   if st.individual.isAnalyzed then return end
   local active, inactive = activeOf(st._a, st._b)
   st.individual.isAnalyzed = true
+  local fa, fb = st._fa or sim.fertilityOf(st._a), st._fb or sim.fertilityOf(st._b)
+  local hi, lo = math.max(fa, fb), math.min(fa, fb)   -- the better allele shows
   st.individual.active = { species = { name = active, uid = sim.uid(active), temperature = "Normal", humidity = "Normal" },
-    fertility = sim.fertilityOf(active), temperatureTolerance = "BOTH_2" }
-  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) },
-    fertility = sim.fertilityOf(inactive) }
+    fertility = hi, temperatureTolerance = "BOTH_2" }
+  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) }, fertility = lo }
 end
 
 ---One offspring of princess p and drone d. `conditions(m)` decides whether
@@ -63,14 +81,18 @@ end
 function sim.offspring(kind, p, d, rng, conditions)
   local pa = rng() < 0.5 and p._a or p._b
   local da = rng() < 0.5 and d._a or d._b
+  -- One fertility allele from each parent. Drawn from a stream of its own so
+  -- that adding trait genetics does not shift which species a test rolls.
+  local pf = traitRoll() < 0.5 and (p._fa or sim.fertilityOf(p._a)) or (p._fb or sim.fertilityOf(p._b))
+  local df = traitRoll() < 0.5 and (d._fa or sim.fertilityOf(d._a)) or (d._fb or sim.fertilityOf(d._b))
   for _, m in ipairs(sim.mutations) do
     if (m.a == pa and m.b == da) or (m.a == da and m.b == pa) then
       if (conditions == nil or conditions(m)) and rng() * 100 < m.chance then
-        return sim.mkBee(kind, m.result, m.result, false)
+        return sim.mkBee(kind, m.result, m.result, false, pf, df)
       end
     end
   end
-  return sim.mkBee(kind, pa, da, false)
+  return sim.mkBee(kind, pa, da, false, pf, df)
 end
 
 local function conds(m)

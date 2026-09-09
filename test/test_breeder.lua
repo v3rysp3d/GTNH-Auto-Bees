@@ -77,7 +77,7 @@ local function makeCell(library, seed)
     d.size = d.size - 1
     if d.size <= 0 then housing.drone = nil end
     outputs[#outputs + 1] = sim.offspring("princess", p, d, rng)
-    for _ = 1, sim.fertilityOf(p._a) do outputs[#outputs + 1] = sim.offspring("drone", p, d, rng) end
+    for _ = 1, sim.expressed(p) do outputs[#outputs + 1] = sim.offspring("drone", p, d, rng) end
     housing.queen = nil
     return "done"
   end
@@ -281,12 +281,37 @@ end)
 
 T.run("breeder: a fertility 1 princess still takes on the drones' species", function()
   sim.fertility["Meadows"] = 1
-  local lib = library({ { kind = "princess", species = "Meadows" }, { kind = "drone", species = "Forest", n = 1 },
-    { kind = "drone", species = "Meadows", n = 1 } })
+  local lib = library({ { kind = "princess", species = "Meadows" }, { kind = "drone", species = "Forest", n = 4 },
+    { kind = "drone", species = "Meadows", n = 4 } })
   local cell = makeCell(lib, 4)
   local res = breeder.run(cell, sim.job({ id = "f2", target = "Common", a = "Forest", b = "Meadows",
     chance = 15, keepDrones = 2, droneSupply = 16, maxGenerations = 300 }))
   sim.fertility["Meadows"] = nil
   T.ok(res.ok, "breeding still works with a fertility 1 princess: " .. tostring(res.reason))
   T.ok(res.archivedDrones >= 2, "and banks Common drones: " .. tostring(res.archivedDrones))
+end)
+
+-- Fertility is an allele, so a line that comes out of the hives at 1 can be
+-- lifted: cross in a donor that has the better allele, then breed the species
+-- back to pure while keeping the bees that carry it twice.
+T.run("breeder: fertility is bred onto a species from a donor", function()
+  sim.fertility["Rocky"] = 1
+  local lib = library({ { kind = "princess", species = "Rocky" }, { kind = "drone", species = "Rocky", n = 6 },
+    { kind = "drone", species = "Meadows", n = 6 } })
+  local cell = makeCell(lib, 8)
+  local res = breeder.run(cell, {
+    id = "u1", kind = "fertility", target = U("Rocky"), donor = U("Meadows"), wantFertility = 2,
+    keepDrones = 2, droneSupply = 16, maxGenerations = 200,
+    names = { [U("Rocky")] = "Rocky", [U("Meadows")] = "Meadows" },
+  })
+  sim.fertility["Rocky"] = nil
+  T.ok(res.ok, "the uplift finishes: " .. tostring(res.reason))
+  T.ok(res.princess, "a lifted princess is archived")
+  T.ok(res.archivedDrones >= 2, "and lifted drones: " .. tostring(res.archivedDrones))
+  local lifted = 0
+  for _, st in ipairs(cell._archived) do
+    local a, i = genome.fertilityPair(st)
+    if genome.isPure(st, U("Rocky")) and a and i and a >= 2 and i >= 2 then lifted = lifted + (st.size or 1) end
+  end
+  T.ok(lifted >= 2, "pure Rocky at fertility 2 on both alleles reached the library: " .. lifted)
 end)

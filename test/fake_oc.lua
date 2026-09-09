@@ -241,7 +241,8 @@ function fake.install(opts)
     local q = housing.queen
     if q and q._kind == "princess" and housing.drone then
       local d = housing.drone
-      housing.pending = { p = { _a = q._a, _b = q._b }, d = { _a = d._a, _b = d._b } }
+      housing.pending = { p = { _a = q._a, _b = q._b, _fa = q._fa, _fb = q._fb },
+                          d = { _a = d._a, _b = d._b, _fa = d._fa, _fb = d._fb } }
       housing.queen = nil
       d.size = (d.size or 1) - 1
       if d.size <= 0 then housing.drone = nil end
@@ -256,7 +257,7 @@ function fake.install(opts)
         local princess = sim.offspring("princess", pend.p, pend.d, rng, conditionsMet)
         princess._kind = "princess"
         chestAdd(princess)
-        for _ = 1, sim.fertilityOf(pend.p._a) do
+        for _ = 1, sim.expressed(pend.p) do
           local drone = sim.offspring("drone", pend.p, pend.d, rng, conditionsMet)
           drone._kind = "drone"
           chestAdd(drone)
@@ -272,8 +273,8 @@ function fake.install(opts)
     if q and q._kind == "princess" and housing.drone then
       -- mate: princess + one drone -> queen
       local d = housing.drone
-      local queen = sim.mkBee("queen", q._a, q._b, true)
-      queen._mate = { _a = d._a, _b = d._b }
+      local queen = sim.mkBee("queen", q._a, q._b, true, q._fa, q._fb)
+      queen._mate = { _a = d._a, _b = d._b, _fa = d._fa, _fb = d._fb }
       queen._kind = "queen"
       housing.queen = queen
       d.size = (d.size or 1) - 1
@@ -283,12 +284,12 @@ function fake.install(opts)
     elseif q and q._kind == "queen" then
       housing.ticksLeft = housing.ticksLeft - 1
       if housing.ticksLeft <= 0 then
-        local p = { _a = q._a, _b = q._b }
+        local p = { _a = q._a, _b = q._b, _fa = q._fa, _fb = q._fb }
         local d = q._mate
         local princess = sim.offspring("princess", p, d, rng, conditionsMet)
         princess._kind = "princess"
         chestAdd(princess)
-        for _ = 1, sim.fertilityOf(p._a) do
+        for _ = 1, sim.expressed(p) do
           local drone = sim.offspring("drone", p, d, rng, conditionsMet)
           drone._kind = "drone"
           chestAdd(drone)

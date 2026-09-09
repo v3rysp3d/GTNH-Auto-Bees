@@ -76,6 +76,7 @@ Type a command and press <kbd>Enter</kbd>. The same words work in Discord with t
 | `breed 4137 all 16` | keep 16 drones of every intermediate |
 | `plan 4137` | show the steps, chances and conditions the planner picked |
 | `routes 1005` | every mutation that makes a species, marking the one the planner picked |
+| `improve 2078 want 2` | breed a better fertility allele onto a species, using a donor from the library |
 | `needs 4137` | foundation blocks, climate upgrades and stations for that chain, with stock status |
 | `find naquadah` | catalog numbers |
 | `status`, `queue`, `cells`, `library [text]` | what is happening |
@@ -255,7 +256,13 @@ A queen makes as many drones per cycle as her fertility allele, and mating spend
 fertility 1 breaks even forever: it can never grow its own stock. Such a line is still good for the rest of
 breeding, where a princess is given the drones' species and the hybrids are binned, so only stockpiling is
 refused. `library` prints the fertility it has seen for each species and marks the ones that cannot stockpile.
-Supply those drones from wild hives, or breed a higher-fertility line, then `scan` to let it try again.
+Supply those drones from wild hives, or lift the line itself with `improve`.
+
+Fertility is an allele of its own, inherited independently of the species, so a bee that comes out of the hives
+at fertility 1 can be lifted. `improve 2078` picks a donor from the library that already has the better allele,
+crosses it in, then breeds the species back to pure while keeping the bees that carry the allele twice. A bee
+shows both of its alleles once analyzed, so "breeds true" is checked rather than assumed. When it finishes, the
+species is stockpilable and the mark is cleared automatically.
 
 ### Why it breeds a parent species first
 

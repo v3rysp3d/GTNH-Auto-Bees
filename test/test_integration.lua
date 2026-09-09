@@ -395,3 +395,29 @@ T.run("integration: no stockpile job for a line that cannot multiply", function(
   ctl.lowFertility = {}
   ctl.library[U("Forest")].drones = forestDrones
 end)
+
+-- The whole point of the uplift, driven from the controller: a line that
+-- cannot multiply gets a better fertility allele bred onto it.
+T.run("integration: improve queues an uplift with a donor from the library", function()
+  env.side = "controller"
+  local bad = ctl:command("improve 9999", "test")
+  T.ok(bad:find("error", 1, true) == 1, "an unknown number is refused: " .. bad)
+
+  -- everything in this library is fertility 2, so it can lend the allele
+  local out = ctl:command("improve Cultivated want 3", "test")
+  T.ok(out:find("no species in the library has fertility 3", 1, true), "no donor at 3: " .. out)
+
+  ctl.library[U("Cultivated")].fertility = 1
+  local queued = ctl:command("improve Cultivated", "test")
+  T.ok(queued:find("queued", 1, true), "uplift queued: " .. queued)
+  local req = ctl.S.requests[#ctl.S.requests]
+  local job = ctl.S.jobs[req.jobs[1]]
+  T.eq(job.kind, "fertility", "a fertility job")
+  T.eq(job.target, U("Cultivated"), "on the species asked for")
+  T.ok(job.donor and job.donor ~= job.target, "with a donor that is another species: " .. tostring(job.donor))
+  T.eq(job.wantFertility, 2, "aiming at fertility 2")
+  ctl:command("cancel " .. req.id, "test")
+  ctl.library[U("Cultivated")].fertility = 2
+  T.ok(ctl:command("improve Cultivated", "test"):find("already at fertility 2", 1, true), "a good line is left alone")
+  env.side = "robot"
+end)
