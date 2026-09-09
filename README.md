@@ -250,6 +250,13 @@ Princesses alone do not make a route usable, which is why a chain can reach for 
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
 
+### Lucky bees are kept
+
+A princess carrying the target mated with a parent drone can mutate into the step *after* the one being bred, so
+chasing Common turns up the occasional Cultivated. Any bee that is pure of any species goes to the library,
+whatever the job was for, and the log says what turned up. Only hybrids, which are junk once their line is
+finished, are voided.
+
 ### Odds are weighed against your stock
 
 Every attempt spends a drone of each parent, so what matters is not the mutation's chance but the chance of a

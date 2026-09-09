@@ -937,6 +937,11 @@ function controller:new(cfg, logger)
           self:card("phase", string.format("%s: %s reached %s at generation %d", c.name, job and self:label(job.target) or "-", d.to, d.generation or 0),
             nil, nil, job and job.target or nil)
         end
+      elseif p.kind == "found" then
+        local list = table.concat(d.species or {}, ", ")
+        self:notify("%s turned up %s while breeding; kept in the library", c.name, list)
+        self:card("found", string.format("%s found %s", c.name, list),
+          { { "While breeding", self:label((self.S.jobs[c.job] or {}).target or "") } })
       elseif p.kind == "warn" then
         self:notify("%s: %s", c.name, tostring(d.text))
       elseif p.kind == "error" then

@@ -126,10 +126,12 @@ local function makeCell(library, seed)
     library[#library + 1] = piece   -- archived bees are fetchable again, as in ME
     return true
   end
+  local binned = {}
   function cell.discard(slot, n)
     local piece = split(slot, n)
     if not piece then return false end
     discarded = discarded + (piece.size or 1)
+    binned[#binned + 1] = piece
     return true
   end
   function cell.setFoundation(block) cell.foundation = block; return true end
@@ -140,6 +142,7 @@ local function makeCell(library, seed)
   cell._events = events
   cell._inv = inv
   cell._discardedCount = function() return discarded end
+  cell._binned = binned
   return cell
 end
 
@@ -218,6 +221,27 @@ T.run("breeder: missing library stock fails cleanly", function()
   local cell = makeCell(library({ { kind = "princess", species = "Forest" } }), 1)
   local res = breeder.run(cell, sim.job({ id = "t4", target = "Common", a = "Forest", b = "Meadows", keepDrones = 1 }))
   T.ok(not res.ok and res.reason:match("Meadows"), "reports the missing species by name: " .. tostring(res.reason))
+end)
+
+-- Breeding turns up species nobody asked for: a princess carrying the target
+-- mated with a parent drone can mutate into the step after the one being bred.
+-- Those are worth keeping, so nothing pure should ever be binned.
+T.run("breeder: a pure bee of any species is kept, never binned", function()
+  local lib = library({ { kind = "princess", species = "Forest" }, { kind = "drone", species = "Meadows", n = 2 },
+    { kind = "drone", species = "Forest", n = 2 } })
+  local cell = makeCell(lib, 7)
+  local res = breeder.run(cell, sim.job({ id = "k1", target = "Common", a = "Forest", b = "Meadows",
+    chance = 15, keepDrones = 6, droneSupply = 16, maxGenerations = 300 }))
+  T.ok(res.ok, "the job runs: " .. tostring(res.reason))
+  for _, st in ipairs(cell._binned) do
+    T.ok(not (genome.analyzed(st) and genome.isPureAny(st)),
+      "binned only impure bees, not " .. genome.describe(st))
+  end
+  local species = {}
+  for _, st in ipairs(cell._archived) do
+    if genome.isPureAny(st) then species[genome.activeName(st)] = true end
+  end
+  T.ok(species["Common"], "the target reached the library")
 end)
 
 T.run("breeder: a stockpile run banks drones that merge into one stack", function()

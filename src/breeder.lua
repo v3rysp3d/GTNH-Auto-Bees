@@ -75,7 +75,7 @@ function breeder.run(cell, job)
   local supply = job.droneSupply or 16
   local state = {
     generation = 0, archivedDrones = 0, hits = 0, phase = "prepare",
-    princessSlot = nil, mateSpecies = nil, honeyUsed = 0, fetchMissed = {}, noHoney = nil,
+    princessSlot = nil, mateSpecies = nil, honeyUsed = 0, fetchMissed = {}, noHoney = nil, found = {},
   }
 
   local function ev(kind, data)
@@ -218,6 +218,21 @@ function breeder.run(cell, job)
 
   --- Archive pure target drones, keep one stack of each useful kind as a
   --- spare mate, return surplus pure parents to the library, discard the rest.
+  --- Anything pure goes to the library, whatever species it is. Breeding
+  --- throws up species nobody asked for: a princess carrying the target mated
+  --- with a parent drone can mutate into the step *after* the one being bred,
+  --- and that bee is worth far more than the honey it cost to read.
+  local function keepFound(e)
+    local st = e.stack
+    local n = st.size or 1
+    if cell.archive(e.slot, n) then
+      local name = genome.activeName(st) or "?"
+      state.found[name] = (state.found[name] or 0) + n
+      return true
+    end
+    return false
+  end
+
   local function cleanup(princessSlot)
     local groups = { target = {}, hybrid = {}, [A] = {}, [B] = {} }
     for _, e in ipairs(cell.listBees()) do
@@ -228,6 +243,7 @@ function breeder.run(cell, job)
           elseif genome.hasSpecies(st, target) then table.insert(groups.hybrid, e)
           elseif genome.isPure(st, A) then table.insert(groups[A], e)
           elseif genome.isPure(st, B) then table.insert(groups[B], e)
+          elseif genome.isPureAny(st) then keepFound(e)
           else cell.discard(e.slot) end
         else
           -- unanalyzed and not interesting to the prescreen: only parent-named
@@ -236,6 +252,9 @@ function breeder.run(cell, job)
           local uid = (sp == nameOf(A)) and A or ((sp == nameOf(B)) and B or nil)
           if uid and groups[uid] then table.insert(groups[uid], e) else cell.discard(e.slot) end
         end
+      elseif e.slot ~= princessSlot and genome.kind(st) == "princess"
+        and genome.analyzed(st) and genome.isPureAny(st) and not genome.isPure(st, target) then
+        keepFound(e)
       end
     end
     local function order(list)
@@ -395,6 +414,12 @@ function breeder.run(cell, job)
       end
     end
 
+    if next(state.found) then
+      local kept = {}
+      for name, n in pairs(state.found) do kept[#kept + 1] = string.format("%s x%d", name, n) end
+      ev("found", { species = kept })
+      state.found = {}
+    end
     ev("gen", {
       princess = summarize(princess), drones = droneSummaries, hits = hitsThisGen,
       archived = state.archivedDrones, keep = keep, honey = state.honeyUsed, noProgress = noProgress,
@@ -413,15 +438,13 @@ function breeder.run(cell, job)
     local st = e.stack
     if e.slot == state.princessSlot then
       if genome.isPure(st, target) and cell.archive(e.slot, 1) then producedPrincess = true end
-    elseif genome.kind(st) == "drone" then
-      if genome.analyzed(st) and genome.isPureAny(st) then
-        local n = st.size or 1
-        if cell.archive(e.slot, n) and genome.isPure(st, target) then
-          state.archivedDrones = state.archivedDrones + n
-        end
-      else
-        cell.discard(e.slot)
+    elseif genome.analyzed(st) and genome.isPureAny(st) then
+      local n = st.size or 1
+      if cell.archive(e.slot, n) and genome.kind(st) == "drone" and genome.isPure(st, target) then
+        state.archivedDrones = state.archivedDrones + n
       end
+    elseif genome.kind(st) == "drone" then
+      cell.discard(e.slot)
     end
   end
 
