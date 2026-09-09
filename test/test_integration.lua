@@ -375,3 +375,23 @@ T.run("integration: a stockpile job only breeds the shortfall", function()
   end
   ctl:command("cancel " .. req.id, "test")
 end)
+
+-- A line with fertility 1 breaks even: the cycle makes one drone and mating
+-- spends one. Queueing a stockpile job for it only wastes the machine.
+T.run("integration: no stockpile job for a line that cannot multiply", function()
+  ctl.lowFertility = { [U("Forest")] = true }
+  ctl.library[U("Forest")] = ctl.library[U("Forest")] or { name = "Forest", drones = 0, princesses = 0, hybrids = 0 }
+  local forestDrones = ctl:dronesOf(U("Forest"))
+  ctl.library[U("Forest")].drones = 0
+  T.eq(ctl:canStockpile(U("Forest")), false, "Forest is marked as unable to stockpile")
+  local res = ctl:command("breed Cultivated keep 2", "test")
+  T.ok(res:match("queued"), "the request is still accepted: " .. res)
+  local req = ctl.S.requests[#ctl.S.requests]
+  for _, jid in ipairs(req.jobs) do
+    local j = ctl.S.jobs[jid]
+    T.ok(not (j.kind == "stock" and j.target == U("Forest")), "no Forest stockpile job was queued")
+  end
+  ctl:command("cancel " .. req.id, "test")
+  ctl.lowFertility = {}
+  ctl.library[U("Forest")].drones = forestDrones
+end)

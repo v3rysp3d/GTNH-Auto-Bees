@@ -40,13 +40,22 @@ function sim.mkBee(kind, a1, a2, analyzed)
   return st
 end
 
+--- Drones a queen of a species makes per cycle; 2 unless a test says
+--- otherwise. Some real bees have 1, which means a line cannot grow.
+sim.fertility = {}
+
+function sim.fertilityOf(species)
+  return sim.fertility[species] or 2
+end
+
 function sim.analyze(st)
   if st.individual.isAnalyzed then return end
   local active, inactive = activeOf(st._a, st._b)
   st.individual.isAnalyzed = true
   st.individual.active = { species = { name = active, uid = sim.uid(active), temperature = "Normal", humidity = "Normal" },
-    fertility = 2, temperatureTolerance = "BOTH_2" }
-  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) }, fertility = 2 }
+    fertility = sim.fertilityOf(active), temperatureTolerance = "BOTH_2" }
+  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) },
+    fertility = sim.fertilityOf(inactive) }
 end
 
 ---One offspring of princess p and drone d. `conditions(m)` decides whether

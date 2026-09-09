@@ -249,6 +249,14 @@ including routes the mods add beyond the Forestry ones. Where several routes mak
 picks by cost: better odds are cheaper, a required foundation block or climate costs extra, and a species you
 already own costs nothing to obtain. `routes 1005` prints them all and marks the one it chose.
 
+### Fertility 1 lines cannot be stockpiled
+
+A queen makes as many drones per cycle as her fertility allele, and mating spends one of them, so a line with
+fertility 1 breaks even forever: it can never grow its own stock. Such a line is still good for the rest of
+breeding, where a princess is given the drones' species and the hybrids are binned, so only stockpiling is
+refused. `library` prints the fertility it has seen for each species and marks the ones that cannot stockpile.
+Supply those drones from wild hives, or breed a higher-fertility line, then `scan` to let it try again.
+
 ### Why it breeds a parent species first
 
 Every attempt at a mutation burns one drone of each parent, and a step with a 15% chance needs about seven

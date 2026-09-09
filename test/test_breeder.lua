@@ -77,7 +77,7 @@ local function makeCell(library, seed)
     d.size = d.size - 1
     if d.size <= 0 then housing.drone = nil end
     outputs[#outputs + 1] = sim.offspring("princess", p, d, rng)
-    for _ = 1, 2 do outputs[#outputs + 1] = sim.offspring("drone", p, d, rng) end
+    for _ = 1, sim.fertilityOf(p._a) do outputs[#outputs + 1] = sim.offspring("drone", p, d, rng) end
     housing.queen = nil
     return "done"
   end
@@ -261,4 +261,32 @@ T.run("breeder: a library that takes nothing stops the run instead of grinding",
   T.ok(not res.ok, "the job stops")
   T.ok(tostring(res.reason):find("interface", 1, true) ~= nil, "and blames the handover: " .. tostring(res.reason))
   T.ok(res.generations <= 6, "without burning generations: " .. tostring(res.generations))
+end)
+
+-- Fertility 1 means one drone per cycle and mating spends one, so a line
+-- cannot grow. It is still perfectly good for pushing a drone's species onto
+-- a princess, which is most of what breeding is, so only stockpiling is
+-- refused.
+T.run("breeder: fertility 1 cannot stockpile and says so", function()
+  sim.fertility["Common"] = 1
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 1 } })
+  local cell = makeCell(lib, 11)
+  local res = breeder.run(cell, sim.job({ id = "f1", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 8, droneSupply = 16, maxGenerations = 100 }))
+  sim.fertility["Common"] = nil
+  T.ok(not res.ok, "the stockpile run stops")
+  T.ok(tostring(res.reason):find("fertility 1", 1, true) ~= nil, "and names fertility: " .. tostring(res.reason))
+  T.eq(res.generations, 0, "before breeding a single generation")
+end)
+
+T.run("breeder: a fertility 1 princess still takes on the drones' species", function()
+  sim.fertility["Meadows"] = 1
+  local lib = library({ { kind = "princess", species = "Meadows" }, { kind = "drone", species = "Forest", n = 1 },
+    { kind = "drone", species = "Meadows", n = 1 } })
+  local cell = makeCell(lib, 4)
+  local res = breeder.run(cell, sim.job({ id = "f2", target = "Common", a = "Forest", b = "Meadows",
+    chance = 15, keepDrones = 2, droneSupply = 16, maxGenerations = 300 }))
+  sim.fertility["Meadows"] = nil
+  T.ok(res.ok, "breeding still works with a fertility 1 princess: " .. tostring(res.reason))
+  T.ok(res.archivedDrones >= 2, "and banks Common drones: " .. tostring(res.archivedDrones))
 end)

@@ -132,6 +132,13 @@ function genome.trait(stack, key)
   return stack.individual.active[key], stack.individual.inactive[key]
 end
 
+--- Drones a queen of this bee produces per cycle. One of them is spent on
+--- the next mating, so a line with fertility 1 can never grow.
+function genome.fertility(stack)
+  if not genome.analyzed(stack) then return nil end
+  return tonumber(stack.individual.active.fertility)
+end
+
 function genome.flowerType(stack)
   if not genome.analyzed(stack) then return nil end
   return stack.individual.active.flowerProvider

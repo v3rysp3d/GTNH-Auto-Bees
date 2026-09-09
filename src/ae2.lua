@@ -139,7 +139,7 @@ function ae2:library()
   local lib = {}
   local function bucket(key, name)
     lib[key] = lib[key] or { name = name, drones = 0, princesses = 0, queens = 0, hybrids = 0,
-      unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0 }
+      unanalyzed = 0, unanalyzedDrones = 0, unanalyzedPrincesses = 0, fertility = nil }
     return lib[key]
   end
   for _, st in ipairs(self:bees()) do
@@ -153,6 +153,10 @@ function ae2:library()
       elseif kind == "princess" then b.unanalyzedPrincesses = b.unanalyzedPrincesses + n end
     else
       local b = bucket(genome.active(st), genome.activeName(st))
+      -- the best fertility on record: one bee of a line with fertility 2 is
+      -- enough to make the whole line worth stockpiling
+      local fert = genome.fertility(st)
+      if fert and fert > (b.fertility or 0) then b.fertility = fert end
       if not genome.isPureAny(st) then b.hybrids = b.hybrids + n
       elseif kind == "drone" then b.drones = b.drones + n
       elseif kind == "princess" then b.princesses = b.princesses + n

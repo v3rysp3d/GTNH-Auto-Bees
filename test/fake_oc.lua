@@ -256,7 +256,7 @@ function fake.install(opts)
         local princess = sim.offspring("princess", pend.p, pend.d, rng, conditionsMet)
         princess._kind = "princess"
         chestAdd(princess)
-        for _ = 1, 2 do
+        for _ = 1, sim.fertilityOf(pend.p._a) do
           local drone = sim.offspring("drone", pend.p, pend.d, rng, conditionsMet)
           drone._kind = "drone"
           chestAdd(drone)
@@ -288,7 +288,7 @@ function fake.install(opts)
         local princess = sim.offspring("princess", p, d, rng, conditionsMet)
         princess._kind = "princess"
         chestAdd(princess)
-        for _ = 1, 2 do
+        for _ = 1, sim.fertilityOf(p._a) do
           local drone = sim.offspring("drone", p, d, rng, conditionsMet)
           drone._kind = "drone"
           chestAdd(drone)

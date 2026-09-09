@@ -135,6 +135,7 @@ T.run("genome", function()
   T.eq(genome.hasSpecies(drone, "Forest"), true, "has inactive")
   T.eq(genome.hasSpecies(raw or drone, "x", "Common"), false, "unanalyzed compare by name only when given")
   T.eq(genome.displaySpecies(drone), "Common", "display")
+  T.eq(genome.fertility(drone), 2, "fertility read from the active allele")
   local raw = { name = "Forestry:beePrincessGE", label = "Meadows Princess", size = 1, individual = { type = "bee", isAnalyzed = false, displayName = "Meadows" } }
   T.eq(genome.kind(raw), "princess", "princess kind")
   T.eq(genome.displaySpecies(raw), "Meadows", "unanalyzed display")

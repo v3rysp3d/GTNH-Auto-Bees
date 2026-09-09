@@ -254,6 +254,20 @@ function controller:new(cfg, logger)
     return owned
   end
 
+  --- Best fertility seen for a species, or nil when nothing analyzed is in
+  --- the library. A queen makes this many drones a cycle and mating spends
+  --- one, so 1 means the line cannot grow.
+  function obj:fertilityOf(uid)
+    local b = self.library[uid]
+    return b and b.fertility or nil
+  end
+
+  function obj:canStockpile(uid)
+    if (self.lowFertility or {})[uid] then return false end
+    local f = self:fertilityOf(uid)
+    return f == nil or f > 1
+  end
+
   function obj:princessPool()
     local n = 0
     for _, b in pairs(self.library) do n = n + b.princesses + (b.unanalyzedPrincesses or 0) end
@@ -393,9 +407,14 @@ function controller:new(cfg, logger)
           -- breed only the shortfall: a stockpile run counts what it banks,
           -- so asking for the full figure repeats drones already in the library
           local short = math.max(2, (needed[parent] or 0) - self:dronesOf(parent))
-          local sj = self:stockJob(req, parent, short)
-          S.jobs[sj.id] = sj
-          req.jobs[#req.jobs + 1] = sj.id
+          if not self:canStockpile(parent) then
+            self:notify("%s has fertility 1 and cannot be stockpiled: add %d more drone(s) to the ME network, " ..
+              "breeding will use the %d you have", self:label(parent), short, self:dronesOf(parent))
+          else
+            local sj = self:stockJob(req, parent, short)
+            S.jobs[sj.id] = sj
+            req.jobs[#req.jobs + 1] = sj.id
+          end
         end
       end
       local keep = math.max(d.keepDrones, needed[step.result] or 0)
@@ -728,6 +747,14 @@ function controller:new(cfg, logger)
       }, nil, job.target)
     else
       local missing = (info.reason or ""):match("ran out of drones %(([^/%)]+)")
+      if missing and not self:canStockpile(missing) then
+        job.status = "failed"
+        job.error = info.reason
+        self:notify("%s ran out of %s drones, and that line has fertility 1 so it cannot breed more of itself: " ..
+          "add drones from a hive or a higher-fertility line", job.id, self:label(missing))
+        self:updateRequestStatus(req)
+        return
+      end
       if missing and req and self.graph.species[missing] then
         local sj = self:stockJob(req, missing, 32)
         self.S.jobs[sj.id] = sj
@@ -752,6 +779,16 @@ function controller:new(cfg, logger)
           self:waitFor(job, missingItem)
           self:updateRequestStatus(req)
           self:scanLibrary(true)
+          return
+        end
+        if reason:match("fertility") then
+          job.status = "failed"
+          job.error = info.reason
+          self.lowFertility = self.lowFertility or {}
+          self.lowFertility[job.target] = true
+          self:card("failed", string.format("%s cannot be stockpiled: %s", job.id, self:label(job.target)),
+            { { "Reason", tostring(info.reason) } }, nil, job.target)
+          self:updateRequestStatus(req)
           return
         end
         job.attempts = (job.attempts or 0) + 1
@@ -1130,7 +1167,8 @@ function controller:new(cfg, logger)
           if key:match("^name:") then
             out[#out + 1] = string.format("%-30s unanalyzed %d", name, b.unanalyzed)
           else
-            out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s", self:label(key), b.drones, b.princesses,
+            out[#out + 1] = string.format("%-30s drones %3d  princesses %2d%s%s", self:label(key), b.drones, b.princesses,
+              b.fertility and string.format("  fertility %d%s", b.fertility, b.fertility <= 1 and " (cannot stockpile)" or "") or "",
               b.hybrids > 0 and string.format("  (+%d hybrid)", b.hybrids) or "")
           end
         end
@@ -1207,6 +1245,7 @@ function controller:new(cfg, logger)
       self:dispatch()
       return string.format("%d job(s) back in the queue", revived)
     elseif verb == "scan" then
+      self.lowFertility = {}
       self:scanLibrary(true)
       return string.format("library: %d species with drones, %d princesses", util.count(self:ownedSet()), self:princessPool())
     elseif verb == "survey" then
