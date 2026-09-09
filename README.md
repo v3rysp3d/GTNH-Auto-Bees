@@ -250,6 +250,15 @@ Princesses alone do not make a route usable, which is why a chain can reach for 
 while ignoring one you are sure you have. `library <name>` splits the unanalyzed count into drones and
 princesses, and `routes` shows the drone count for both parents of every route.
 
+### Finished means the drones stack
+
+A bee is done when its drones pile into one stack, which happens only when every chromosome carries the same
+allele twice. Species purity is not enough: two Common drones that differ in fertility or speed sit in separate
+stacks and pass on unlike offspring. A job counts only drones that breed true towards the number you asked for,
+and prefers such a bee as the mate so the line converges. Everything species-pure still reaches the library, it
+just does not count. After 60 generations of holding out the job accepts what it has, says so in the log, and
+the card notes that the drones do not all stack.
+
 ### Lucky bees are kept
 
 A princess carrying the target mated with a parent drone can mutate into the step *after* the one being bred, so

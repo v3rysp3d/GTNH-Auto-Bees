@@ -810,7 +810,8 @@ function controller:new(cfg, logger)
       end
       self:card("done", string.format("%s done: %s", job.id, self:label(job.target)), {
         { "Generations", tostring(info.generations or 0) },
-        { "Drones archived", tostring(info.archivedDrones or 0) },
+        { "Drones archived", string.format("%s%s", tostring(info.archivedDrones or 0),
+          info.stacks == false and " (they do not all stack)" or "") },
         { "Princess", info.princess and "yes" or "no" },
         { "Honey used", tostring(info.honey or 0) },
         { "Time", util.fmtSeconds(util.now() - (job.started or util.now())) },

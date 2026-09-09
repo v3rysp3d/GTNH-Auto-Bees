@@ -339,3 +339,28 @@ T.run("breeder: fertility is bred onto a species from a donor", function()
   end
   T.ok(lifted >= 2, "pure Rocky at fertility 2 on both alleles reached the library: " .. lifted)
 end)
+
+-- "Finished" means the drones stack, which means every allele matched. A
+-- species-pure line whose fertility alleles differ does not count.
+T.run("breeder: a line that does not stack is not counted as finished", function()
+  sim.fertility["Common"] = 2
+  local lib = library({ { kind = "princess", species = "Common" }, { kind = "drone", species = "Common", n = 2 } })
+  -- one parent carries a different fertility allele, so offspring vary
+  for _, st in ipairs(lib) do
+    if genome.kind(st) == "princess" then st._fa, st._fb = 2, 3 st.individual.isAnalyzed = false sim.analyze(st) end
+  end
+  local cell = makeCell(lib, 13)
+  local res = breeder.run(cell, sim.job({ id = "p1", target = "Common", a = "Common", b = "Common",
+    chance = 100, keepDrones = 6, droneSupply = 16, maxGenerations = 120, strictAfter = 1000 }))
+  sim.fertility["Common"] = nil
+  T.ok(res.ok, "the run still finishes: " .. tostring(res.reason))
+  local prints = {}
+  for _, st in ipairs(cell._archived) do
+    if genome.kind(st) == "drone" and genome.isPure(st, U("Common")) and genome.isHomozygous(st) then
+      prints[genome.fingerprint(st)] = true
+    end
+  end
+  local n = 0
+  for _ in pairs(prints) do n = n + 1 end
+  T.eq(n, 1, "every drone it counted as finished stacks with the others")
+end)

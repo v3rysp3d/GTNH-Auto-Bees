@@ -50,6 +50,10 @@ local STOCKPILE_STALL = 15
 --- Handovers to the library that may fail before the job gives up.
 local ARCHIVE_FAILURES = 3
 
+--- Generations spent holding out for drones that stack before the job settles
+--- for species-pure ones.
+local STRICT_AFTER = 60
+
 local function summarize(stack) return genome.summary(stack) end
 
 --- How good is this drone as a mate for reaching species `uid` (display `name`)?
@@ -57,7 +61,9 @@ local function mateScore(stack, uid, name)
   if not genome.analyzed(stack) then
     return genome.displaySpecies(stack) == name and 1 or 0
   end
-  if genome.isPure(stack, uid) then return 3 end
+  -- A mate whose alleles all match passes them on whole, which is how a line
+  -- converges on drones that stack.
+  if genome.isPure(stack, uid) then return genome.isHomozygous(stack) and 4 or 3 end
   if genome.hasSpecies(stack, uid) then return 2 end
   return 0
 end
@@ -76,6 +82,7 @@ function breeder.run(cell, job)
   local state = {
     generation = 0, archivedDrones = 0, hits = 0, phase = "prepare",
     princessSlot = nil, mateSpecies = nil, honeyUsed = 0, fetchMissed = {}, noHoney = nil, found = {},
+    strict = true, pureBanked = 0,
   }
 
   local function ev(kind, data)
@@ -261,6 +268,9 @@ function breeder.run(cell, job)
       table.sort(list, function(x, y)
         local ax, ay = genome.analyzed(x.stack) and 1 or 0, genome.analyzed(y.stack) and 1 or 0
         if ax ~= ay then return ax > ay end
+        -- a bee that breeds true is worth holding on to over one that does not
+        local hx, hy = genome.isHomozygous(x.stack) and 1 or 0, genome.isHomozygous(y.stack) and 1 or 0
+        if hx ~= hy then return hx > hy end
         return (x.stack.size or 1) > (y.stack.size or 1)
       end)
       return list
@@ -284,7 +294,13 @@ function breeder.run(cell, job)
     trimToSpare(groups.target, SPARE_MATES, function(e, n)
       local ok, moved = cell.archive(e.slot, n)
       if ok then
-        state.archivedDrones = state.archivedDrones + (tonumber(moved) or n)
+        local banked = tonumber(moved) or n
+        state.pureBanked = state.pureBanked + banked
+        -- The job is finished when the drones it banked stack, which means
+        -- every allele matched, not just the species.
+        if genome.isHomozygous(e.stack) or not state.strict then
+          state.archivedDrones = state.archivedDrones + banked
+        end
         state.archiveFailures = 0
         state.fetchMissed[target] = nil -- the library holds target drones now
       else
@@ -392,6 +408,16 @@ function breeder.run(cell, job)
 
     local bankedBefore = state.archivedDrones
     cleanup(state.princessSlot)
+    -- Holding out for a line that breeds true is right, but not forever: past
+    -- the cutoff the species-pure drones already banked are accepted, with a
+    -- word about what they are.
+    if state.strict and state.pureBanked >= keep and state.generation >= (job.strictAfter or STRICT_AFTER) then
+      state.strict = false
+      state.archivedDrones = state.pureBanked
+      ev("warn", { text = string.format(
+        "%d %s drones banked but they do not all stack; accepting them after %d generations",
+        state.pureBanked, nameOf(target), state.generation) })
+    end
     -- Drones that cannot be handed over pile up in the robot and the run
     -- makes no progress no matter how many generations it burns.
     if (state.archiveFailures or 0) >= ARCHIVE_FAILURES then
@@ -451,6 +477,7 @@ function breeder.run(cell, job)
   local res = {
     ok = true, target = target, generations = state.generation, hits = state.hits,
     archivedDrones = state.archivedDrones, princess = producedPrincess, honey = state.honeyUsed,
+    stacks = state.strict, pureBanked = state.pureBanked,
   }
   ev("done", res)
   return res

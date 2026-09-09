@@ -73,7 +73,9 @@ function sim.analyze(st)
   local hi, lo = math.max(fa, fb), math.min(fa, fb)   -- the better allele shows
   st.individual.active = { species = { name = active, uid = sim.uid(active), temperature = "Normal", humidity = "Normal" },
     fertility = hi, temperatureTolerance = "BOTH_2" }
-  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) }, fertility = lo }
+  -- both sides of every chromosome, as the real converter reports them
+  st.individual.inactive = { species = { name = inactive, uid = sim.uid(inactive) }, fertility = lo,
+    temperatureTolerance = "BOTH_2" }
 end
 
 ---One offspring of princess p and drone d. `conditions(m)` decides whether

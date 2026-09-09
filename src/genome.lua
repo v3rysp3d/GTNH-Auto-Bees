@@ -146,6 +146,51 @@ function genome.fertilityPair(stack)
   return tonumber(stack.individual.active.fertility), tonumber(stack.individual.inactive.fertility)
 end
 
+--- The chromosomes a bee carries, in the order Forestry lists them.
+genome.alleleKeys = { "species", "speed", "lifespan", "fertility", "temperatureTolerance",
+  "humidityTolerance", "nocturnal", "tolerantFlyer", "caveDwelling", "flowerProvider",
+  "flowering", "effect", "territory" }
+
+local function canon(v)
+  local t = type(v)
+  if t == "nil" then return "-" end
+  if t == "table" then
+    if v.uid then return tostring(v.uid) end
+    if v.name then return tostring(v.name) end
+    local parts = {}
+    for i = 1, #v do parts[#parts + 1] = tostring(v[i]) end
+    return table.concat(parts, ",")
+  end
+  return tostring(v)
+end
+
+--- Two bees stack only when every allele matches, which is what players mean
+--- by a pure bee: one whose drones pile into a single stack. Species purity
+--- alone is not enough, since two Common drones differing in fertility or
+--- speed sit in separate stacks and breed unlike offspring.
+function genome.fingerprint(stack)
+  if not genome.analyzed(stack) then return nil end
+  local a, i = stack.individual.active, stack.individual.inactive
+  local parts = {}
+  for _, key in ipairs(genome.alleleKeys) do
+    parts[#parts + 1] = canon(a[key]) .. "/" .. canon(i[key])
+  end
+  return table.concat(parts, "|")
+end
+
+--- Both alleles equal on every chromosome: such a bee breeds true, and its
+--- drones stack with each other.
+function genome.isHomozygous(stack)
+  if not genome.analyzed(stack) then return false end
+  local a, i = stack.individual.active, stack.individual.inactive
+  for _, key in ipairs(genome.alleleKeys) do
+    -- a chromosome the converter did not report on both sides tells us
+    -- nothing, so it is not held against the bee
+    if a[key] ~= nil and i[key] ~= nil and canon(a[key]) ~= canon(i[key]) then return false end
+  end
+  return true
+end
+
 function genome.flowerType(stack)
   if not genome.analyzed(stack) then return nil end
   return stack.individual.active.flowerProvider

@@ -136,6 +136,20 @@ T.run("genome", function()
   T.eq(genome.hasSpecies(raw or drone, "x", "Common"), false, "unanalyzed compare by name only when given")
   T.eq(genome.displaySpecies(drone), "Common", "display")
   T.eq(genome.fertility(drone), 2, "fertility read from the active allele")
+  T.eq(genome.isHomozygous(drone), false, "a hybrid does not breed true")
+  local twin = { name = "Forestry:beeDroneGE", label = "Common Drone", size = 1, individual = {
+    type = "bee", isAnalyzed = true,
+    active = { species = { name = "Common", uid = "forestry.speciesCommon" }, fertility = 2, speed = "slowest" },
+    inactive = { species = { name = "Common", uid = "forestry.speciesCommon" }, fertility = 2, speed = "slowest" },
+  } }
+  local other = { name = "Forestry:beeDroneGE", label = "Common Drone", size = 1, individual = {
+    type = "bee", isAnalyzed = true,
+    active = { species = { name = "Common", uid = "forestry.speciesCommon" }, fertility = 2, speed = "fast" },
+    inactive = { species = { name = "Common", uid = "forestry.speciesCommon" }, fertility = 2, speed = "fast" },
+  } }
+  T.eq(genome.isHomozygous(twin), true, "matching alleles throughout breed true")
+  T.eq(genome.isPure(other, "forestry.speciesCommon"), true, "both are species-pure")
+  T.ok(genome.fingerprint(twin) ~= genome.fingerprint(other), "but differing speed means they do not stack")
   local raw = { name = "Forestry:beePrincessGE", label = "Meadows Princess", size = 1, individual = { type = "bee", isAnalyzed = false, displayName = "Meadows" } }
   T.eq(genome.kind(raw), "princess", "princess kind")
   T.eq(genome.displaySpecies(raw), "Meadows", "unanalyzed display")
