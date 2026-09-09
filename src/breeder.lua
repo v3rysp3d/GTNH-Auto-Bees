@@ -43,6 +43,10 @@ local breeder = {}
 --- next mate; everything above this goes to the library each generation.
 local SPARE_MATES = 4
 
+--- Generations a stockpile run may go without banking a single drone before
+--- it is treated as broken rather than unlucky.
+local STOCKPILE_STALL = 15
+
 local function summarize(stack) return genome.summary(stack) end
 
 --- How good is this drone as a mate for reaching species `uid` (display `name`)?
@@ -346,11 +350,27 @@ function breeder.run(cell, job)
     state.hits = state.hits + hitsThisGen
     if hitsThisGen > 0 then noProgress = 0 else noProgress = noProgress + 1 end
 
+    local bankedBefore = state.archivedDrones
     cleanup(state.princessSlot)
+    -- A stockpile run can legitimately bank nothing for a while, waiting for
+    -- a pure target drone to appear. Grinding for a long time without the
+    -- count moving is worth saying out loud, though: that is what a silent
+    -- failure to read or archive the offspring looks like from outside.
+    if state.archivedDrones > bankedBefore then
+      state.lastBanked = state.generation
+    elseif state.phase == "stockpile" then
+      state.stockSince = state.stockSince or state.generation
+      local since = math.max(state.lastBanked or 0, state.stockSince)
+      local waited = state.generation - since
+      if waited > 0 and waited % STOCKPILE_STALL == 0 then
+        ev("warn", { text = string.format("%d generations of stockpiling without banking a drone (%d of %d)",
+          waited, state.archivedDrones, keep) })
+      end
+    end
 
     ev("gen", {
       princess = summarize(princess), drones = droneSummaries, hits = hitsThisGen,
-      archived = state.archivedDrones, honey = state.honeyUsed, noProgress = noProgress,
+      archived = state.archivedDrones, keep = keep, honey = state.honeyUsed, noProgress = noProgress,
     })
     if job.warnAfter and noProgress > 0 and noProgress % job.warnAfter == 0 then
       ev("warn", { text = string.format("%d generations without a %s hit", noProgress, target) })

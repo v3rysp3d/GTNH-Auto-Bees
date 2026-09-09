@@ -241,6 +241,13 @@ Interfaces of every cell are on the controller's OC network and the ME network r
 OpenComputers stamps its logs with the in-game clock, which runs 72 times faster than real time. An hour on
 screen is fifty real seconds, so a log that looks like it spent an hour on one step spent under a minute.
 
+### Why it breeds a parent species first
+
+Every attempt at a mutation burns one drone of each parent, and a step with a 15% chance needs about seven
+attempts, so a request first queues a stockpile job for any parent the library is short of. That job mates the
+species with itself until it has banked enough drones. The `cells` line shows how far along it is, as
+`archived 4/11`. If the count sits still for many generations the log says so.
+
 ### Honey drops are not optional
 
 Every offspring is analyzed before the robot can tell a mutation from junk, and analysis costs one Honey Drop.

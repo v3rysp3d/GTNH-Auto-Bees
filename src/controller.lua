@@ -814,6 +814,7 @@ function controller:new(cfg, logger)
       if p.kind == "gen" then
         c.gen = d.generation
         c.phase = d.phase
+        c.archived, c.keep = d.archived, d.keep
         c.lastGen = util.now()
         if d.hits and d.hits > 0 then
           local job = self.S.jobs[d.job]
@@ -859,8 +860,9 @@ function controller:new(cfg, logger)
       local c = self.cells[name]
       local job = c.job and self.S.jobs[c.job]
       if job then
-        out[#out + 1] = string.format("%-8s %s -> %s  gen %s [%s]  %s", name, job.id, self:label(job.target),
-          tostring(c.gen or 0), tostring(c.phase or "-"), util.fmtSeconds(util.now() - (job.started or util.now())))
+        local progress = c.keep and string.format(" %d/%d drones", c.archived or 0, c.keep) or ""
+        out[#out + 1] = string.format("%-8s %s -> %s  gen %s [%s]%s  %s", name, job.id, self:label(job.target),
+          tostring(c.gen or 0), tostring(c.phase or "-"), progress, util.fmtSeconds(util.now() - (job.started or util.now())))
       else
         out[#out + 1] = string.format("%-8s %s  (seen %s ago)  foundation %s", name, c.status,
           util.fmtSeconds(util.now() - (c.lastSeen or 0)), tostring(c.foundation or "-"))
@@ -920,7 +922,8 @@ function controller:new(cfg, logger)
     for name, c in pairs(self.cells) do
       local job = c.job and self.S.jobs[c.job]
       cells[name] = { status = c.status, job = job and job.id or nil, target = job and self:label(job.target) or nil,
-        targetUid = job and job.target or nil, generation = c.gen, phase = c.phase, foundation = c.foundation }
+        targetUid = job and job.target or nil, generation = c.gen, phase = c.phase, foundation = c.foundation,
+        archived = c.archived, keep = c.keep }
     end
     local queue = {}
     for _, r in ipairs(self.S.requests) do
@@ -1080,7 +1083,9 @@ function controller:new(cfg, logger)
       local out = {}
       for _, name in ipairs(util.sortedKeys(self.cells)) do
         local c = self.cells[name]
-        out[#out + 1] = string.format("%s %s housing=%s foundation=%s addr=%s", name, c.status, tostring(c.housing), tostring(c.foundation), c.addr and c.addr:sub(1, 8) or "-")
+        out[#out + 1] = string.format("%s %s housing=%s foundation=%s addr=%s%s", name, c.status, tostring(c.housing),
+          tostring(c.foundation), c.addr and c.addr:sub(1, 8) or "-",
+          c.keep and string.format(" archived=%d/%d", c.archived or 0, c.keep) or "")
       end
       return #out > 0 and table.concat(out, "\n") or "no cells have reported yet"
     elseif verb == "library" then
